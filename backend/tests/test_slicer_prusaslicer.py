@@ -64,6 +64,7 @@ def test_build_command_includes_mvp_variables(tmp_path: Path) -> None:
     assert "7.0" in command.argv
     assert "--rotate" in command.argv
     assert "90.0" in command.argv
+    assert "--filament-density" in command.argv
     assert "--export-gcode" in command.argv
     assert "--output" in command.argv
 
@@ -88,6 +89,36 @@ def test_build_command_fill_density_includes_percent_sign(tmp_path: Path) -> Non
 
     fill_density_index = command.argv.index("--fill-density")
     assert command.argv[fill_density_index + 1] == "20%"
+
+
+def test_build_command_always_passes_filament_density(tmp_path: Path) -> None:
+    """Regression test for a real bug only caught by running an actual
+    PrusaSlicer binary: without --filament-density, PrusaSlicer's default
+    filament_density is 0, so it *correctly* reports 0g of filament no
+    matter the geometry. See PLA_FILAMENT_DENSITY_G_PER_CM3 and the
+    build_command docstring in app/slicer/prusaslicer.py.
+    """
+    from app.slicer.prusaslicer import PLA_FILAMENT_DENSITY_G_PER_CM3
+
+    service = PrusaSlicerService()
+    command = service.build_command(
+        stl_path=tmp_path / "part.stl",
+        printer_profile="generic_pla",
+        candidate_configuration=_candidate(),
+        output_dir=tmp_path,
+        binary_path="prusa-slicer",
+    )
+
+    density_index = command.argv.index("--filament-density")
+    assert command.argv[density_index + 1] == str(PLA_FILAMENT_DENSITY_G_PER_CM3)
+
+
+def test_parse_filament_grams_matches_total_line_from_real_output() -> None:
+    """Real PrusaSlicer-2.9.6 output for a single-extruder slice was
+    observed to include only the "total" line, not a bare "filament used
+    [g]" line — confirm both are handled."""
+    assert PrusaSlicerService.parse_filament_grams("; total filament used [g] = 3.95\n") == pytest.approx(3.95)
+    assert PrusaSlicerService.parse_filament_grams("; filament used [g] = 3.95\n") == pytest.approx(3.95)
 
 
 def test_build_command_omits_support_material_when_disabled(tmp_path: Path) -> None:

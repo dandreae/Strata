@@ -109,17 +109,19 @@ cd backend
 pytest -q
 ```
 
-54 tests currently pass (1 additional integration test auto-skips — see
-below), covering the health/startup endpoints, the runs API (including a
+56 tests currently pass with the default `pytest -q` (mocked/unit tests
+only), covering the health/startup endpoints, the runs API (including a
 mocked full slice-to-decision run), constraint/Pareto/selection logic, the
 storage service, the orchestrator, and the PrusaSlicer command builder +
 G-code parsing helpers.
 
 `tests/test_integration_real_prusaslicer.py` slices the real
 `sample_data/cube_20mm.stl` through an actual `prusa-slicer` binary — it
-auto-skips when none is found (the case in this environment) so a green run
-never implies real slicing was exercised. To actually run it, install
-PrusaSlicer (see Limitations) and run `pytest -m integration -q`.
+auto-skips when none is found, so a green default run never implies real
+slicing was exercised. It **has** been run for real (PrusaSlicer-2.9.6,
+2026-08-16) and passed — see Limitations. To run it yourself: install
+PrusaSlicer, put `prusa-slicer-console.exe` on PATH or set
+`STRATA_PRUSASLICER_BINARY_PATH`, then run `pytest -m integration -q`.
 
 ### Docker
 
@@ -137,17 +139,20 @@ in this image yet (see `backend/Dockerfile` for why and the plan to add it).
 
 ## Current limitations
 
-- **PrusaSlicer is not installed in this development environment** (checked
-  PATH and standard Windows install locations) — this is the single
-  blocker on proving real end-to-end slicing. `PrusaSlicerService`'s CLI
-  flags and G-code parsing were verified by reading PrusaSlicer's own C++
-  source (master branch: `Setup.cpp`, `PrintConfig.cpp`,
-  `ProcessTransform.cpp`, `ProcessActions.cpp`, `LoadPrintData.cpp`,
-  `Print.cpp`, `GCodeProcessor.cpp` — see comments in
-  `backend/app/slicer/prusaslicer.py`), not guessed, but have never been run
-  against a real binary. To unblock: install PrusaSlicer
-  (https://www.prusa3d.com/page/prusaslicer_424/) and either put
-  `prusa-slicer`/`prusa-slicer-console.exe` on PATH or set
+- **Real PrusaSlicer execution is proven but environment-dependent.**
+  PrusaSlicer isn't installed by default in fresh dev environments (it
+  wasn't in this one until manually installed mid-project). Once installed
+  (PrusaSlicer-2.9.6 was used here), `pytest -m integration -q` really slices
+  `sample_data/cube_20mm.stl` and passed, e.g. `print_time_seconds=1028`,
+  `filament_grams=3.95` — both real PrusaSlicer output, not fabricated. Two
+  real bugs were only found this way and are now fixed: `--fill-density`
+  needs a `%` suffix (caught by reading PrintConfig.cpp before running
+  anything), and without `--filament-density` PrusaSlicer *correctly*
+  reports 0g regardless of geometry (only caught by actually running the
+  binary and reading its G-code — see comments in
+  `backend/app/slicer/prusaslicer.py`). To reproduce: install PrusaSlicer
+  (https://www.prusa3d.com/page/prusaslicer_424/), put
+  `prusa-slicer-console.exe` on PATH or set
   `STRATA_PRUSASLICER_BINARY_PATH` to its full path, then run
   `pytest -m integration -q` from `backend/`.
 - Single candidate only: `POST /api/v1/runs` always tries exactly one fixed,
@@ -168,10 +173,9 @@ in this image yet (see `backend/Dockerfile` for why and the plan to add it).
 
 ## Next milestone
 
-Install PrusaSlicer locally, run the integration test
-(`pytest -m integration -q`) to confirm the verified-from-source CLI flags
-and G-code parsing actually work against a real binary, and fix anything
-that doesn't match. Once that's proven, update the frontend to show real
-slicing results, then move on to multi-candidate search (the
+Update the frontend to show real slicing results (print time, filament,
+constraint pass/fail, decision outcome) from `POST /api/v1/runs`, now that
+the backend pipeline is proven against a real PrusaSlicer binary. Then move
+on to multi-candidate search (the
 `app/optimization` Pareto/selection utilities already exist for this) before
 adding Gemini/ADK planning on top.

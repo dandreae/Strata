@@ -117,11 +117,16 @@ a real STL upload → `StorageService` → one default `CandidateConfiguration`
 (`app/agent/default_candidate.py`) → `PrusaSlicerService` → real metric
 parsing → `app/optimization` constraint check → one `DecisionRecord`,
 end to end, synchronously, inside the request (`app/services/orchestrator.py`).
-`PrusaSlicerService`'s CLI flags and G-code comment parsing are grounded in
-PrusaSlicer's own C++ source (see comments in `app/slicer/prusaslicer.py`),
-not guessed — but have never run against a real binary, since none is
-installed in this development environment. A real (auto-skipping)
-integration test exists at `tests/test_integration_real_prusaslicer.py`.
+`PrusaSlicerService`'s CLI flags and G-code comment parsing were grounded in
+PrusaSlicer's own C++ source and then **confirmed against a real installed
+binary** (PrusaSlicer-2.9.6, 2026-08-16): `tests/test_integration_real_prusaslicer.py`
+really slices `sample_data/cube_20mm.stl` and passes (auto-skips when no
+binary is present, so a green default test run never implies this ran). Two
+real bugs were caught this way — one from source review alone
+(`--fill-density` needs a `%` suffix), one only visible by running the
+binary and reading its G-code (PrusaSlicer reports 0g without
+`--filament-density`, since default filament density is 0) — both fixed and
+documented in `app/slicer/prusaslicer.py`.
 
 Still not built:
 
@@ -141,8 +146,8 @@ Still not built:
 
 ## 6. Next milestone
 
-Install PrusaSlicer and run `pytest -m integration -q` to confirm the
-source-verified CLI flags and G-code parsing hold up against a real binary
-— that's the single blocker on proving the pipeline in §5 actually slices.
-Then update the frontend to show real results, and move on to
-multi-candidate search before adding Gemini/ADK planning on top.
+Update the frontend to display real slicing results from
+`POST /api/v1/runs` (print time, filament, constraint pass/fail, decision
+outcome) now that the pipeline in §5 is proven end to end against a real
+PrusaSlicer binary. Then move on to multi-candidate search before adding
+Gemini/ADK planning on top.

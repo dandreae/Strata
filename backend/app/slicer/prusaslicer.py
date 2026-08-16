@@ -1,10 +1,14 @@
 """PrusaSlicerService: shells out to the real PrusaSlicer CLI.
 
-STATUS: implemented, but never executed against a real binary — PrusaSlicer
-is not installed anywhere in this development environment (checked PATH and
-standard Windows install locations). Command construction and G-code parsing
-below are grounded in PrusaSlicer's own C++ source (master branch, fetched
-2026-08-16) rather than guessed:
+STATUS: implemented and verified against a real installed binary
+(PrusaSlicer-2.9.6-console on Windows, 2026-08-16) — `--help`/`--help-fff`
+matched every flag used below exactly, and a real slice of
+`sample_data/cube_20mm.stl` succeeded end to end
+(`tests/test_integration_real_prusaslicer.py`). Command construction and
+G-code parsing were originally grounded in PrusaSlicer's own C++ source
+(master branch) rather than guessed, then corrected against real output
+where the source and the live binary disagreed (see the `--filament-density`
+note below):
 
   - `src/CLI/Setup.cpp`            — CLI argument parsing (--key value / =,
                                       --no- prefix for booleans).
@@ -31,11 +35,20 @@ below are grounded in PrusaSlicer's own C++ source (master branch, fetched
                                       format `"; estimated printing time (%s
                                       mode) = %s\\n"`.
 
-One real, source-confirmed bug this fixed: `--fill-density` MUST be given
-with a `%` suffix (e.g. `20%`). A bare number like `20` has no `%`, so
-PrusaSlicer's legacy-config compatibility path (`PrintConfigDef::handle_legacy`
-in PrintConfig.cpp) treats it as an old-style 0..1 fraction and multiplies it
-by 100 — silently turning "20% infill" into "2000%".
+Two real bugs this caught, one from source review and one only visible by
+actually running the binary:
+
+  1. `--fill-density` MUST be given with a `%` suffix (e.g. `20%`) — caught
+     by reading `PrintConfigDef::handle_legacy` in PrintConfig.cpp before
+     ever running the binary. A bare `20` is silently reinterpreted as an
+     old-style 0..1 fraction and multiplied by 100 ("20%" becomes "2000%").
+  2. Without a filament profile, `filament_density` defaults to `0`, so
+     PrusaSlicer *correctly* reports `; total filament used [g] = 0.00` no
+     matter what the geometry is — a real zero, not a parsing bug. This was
+     NOT visible from source review; it only showed up by actually slicing
+     `cube_20mm.stl` and reading the output G-code. Fixed by passing
+     `--filament-density 1.24` (standard PLA, matching PrusaSlicer's own
+     bundled generic PLA profile) unconditionally — see `build_command()`.
 
 Not yet resolved (documented as limitations, not guessed): printer/material
 *profile* selection (`--load <file.ini>` / `--printer-profile`) is not wired
@@ -60,6 +73,13 @@ from app.models.slicer import SliceResult
 from app.slicer.base import SlicerService, SlicerUnavailableError
 
 logger = get_logger(__name__)
+
+# Standard PLA density, matching PrusaSlicer's own bundled generic PLA
+# profile. Without ANY filament density, PrusaSlicer correctly reports 0g
+# (0 volume * cm3 is meaningless without a density) — confirmed live against
+# a real PrusaSlicer-2.9.6 binary on 2026-08-16. Not a candidate/search
+# variable; see build_command()'s docstring.
+PLA_FILAMENT_DENSITY_G_PER_CM3 = 1.24
 
 
 @dataclass(frozen=True)
@@ -130,6 +150,20 @@ class PrusaSlicerService(SlicerService):
             for compound rotations the *effective* order is always Z, X, Y.
           - `--output <path>`: config key `output`, confirmed in
             `CLIMiscConfigDef`.
+          - `--filament-density <g/cm3>`: NOT a candidate variable — a fixed
+            baseline needed for PrusaSlicer to report grams at all. Verified
+            live against PrusaSlicer 2.9.6 on 2026-08-16: with no filament
+            profile loaded, `filament_density` defaults to `0`, so PrusaSlicer
+            *correctly* computes `; total filament used [g] = 0.00` — a real
+            zero, not a parsing bug (confirmed by diffing G-code output with
+            and without this flag; `; filament used [cm3]` was correctly
+            non-zero in both runs). Strata's scope is PLA (see project
+            README), so a standard PLA density of 1.24 g/cm3 is applied
+            unconditionally, matching the value PrusaSlicer's own bundled
+            generic PLA profile uses. This is a documented assumption, not a
+            per-candidate search variable — it stays out of
+            `CandidateConfiguration` on purpose (material choice is out of
+            MVP scope, same as printer/material profile loading below).
 
         Printer/material profile selection (`--load` / `--printer-profile`)
         is intentionally NOT included: no profile file lookup exists in this
@@ -149,6 +183,8 @@ class PrusaSlicerService(SlicerService):
             f"{candidate_configuration.infill_percent}%",
             "--perimeters",
             str(candidate_configuration.perimeter_count),
+            "--filament-density",
+            str(PLA_FILAMENT_DENSITY_G_PER_CM3),
         ]
 
         if candidate_configuration.supports_enabled:
@@ -203,11 +239,9 @@ class PrusaSlicerService(SlicerService):
         emitted before silent mode, so `re.search` (leftmost match) reliably
         picks the total normal-mode time.
 
-        The exact sub-format used by PrusaSlicer's internal `get_time_dhms`
-        helper (units omitted when zero, e.g. `45s` alone under a minute)
-        was not directly located in the fetched source, but is extremely
-        well attested by real-world PrusaSlicer G-code output; this parser
-        has not been run against a real binary's output in this environment.
+        Confirmed against a real PrusaSlicer-2.9.6 binary on 2026-08-16
+        (e.g. real output `; estimated printing time (normal mode) = 17m 8s`
+        — units omitted when zero, matching the format assumed here).
         """
         match = re.search(
             r"estimated printing time.*?=\s*(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?",
@@ -224,11 +258,20 @@ class PrusaSlicerService(SlicerService):
     def parse_filament_grams(gcode_text: str) -> float | None:
         """Extract filament usage in grams from PrusaSlicer's G-code header comment.
 
-        Literal format confirmed in `src/libslic3r/Print.cpp`:
-        `PrintStatistics::FilamentUsedGMask = "; filament used [g] ="`,
-        e.g. `; filament used [g] = 12.34`. A `[mm]`/`[cm3]` variant also
-        exists (`FilamentUsedMmMask`/`FilamentUsedCm3Mask`) but grams is what
-        Strata's hard constraints are expressed in, so only `[g]` is parsed.
+        Literal format confirmed in `src/libslic3r/Print.cpp`
+        (`PrintStatistics::FilamentUsedGMask`/`TotalFilamentUsedGMask`) and
+        against real PrusaSlicer-2.9.6 output on 2026-08-16, e.g.
+        `; total filament used [g] = 3.95`. This regex is unanchored, so it
+        matches either that line or a bare (non-"total") `; filament used
+        [g] = ...` line, whichever is present — real output was observed to
+        include only the "total" line for a single-extruder slice.
+
+        Real-world gotcha this surfaced (not visible from source alone): a
+        correctly-parsed `0.00` here does not necessarily mean parsing
+        failed — PrusaSlicer's built-in default `filament_density` is `0`
+        without a loaded filament profile, so grams is genuinely computed as
+        zero. `build_command()` now always passes `--filament-density` to
+        avoid this; see its docstring.
         """
         match = re.search(r"filament used \[g\]\s*=\s*([\d.]+)", gcode_text, re.IGNORECASE)
         if not match:
@@ -309,4 +352,9 @@ class SlicerTimeoutError(Exception):
     """Raised when the PrusaSlicer subprocess exceeds its configured timeout."""
 
 
-__all__ = ["PrusaSlicerService", "PrusaSlicerCommand", "SlicerTimeoutError"]
+__all__ = [
+    "PrusaSlicerService",
+    "PrusaSlicerCommand",
+    "SlicerTimeoutError",
+    "PLA_FILAMENT_DENSITY_G_PER_CM3",
+]
