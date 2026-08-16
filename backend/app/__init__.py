@@ -1,0 +1,1 @@
+"""Strata backend application package."""

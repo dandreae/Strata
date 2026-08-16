@@ -1,0 +1,51 @@
+.page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  font-family: system-ui, sans-serif;
+}
+
+h1 {
+  margin-bottom: 0.125rem;
+}
+
+.tagline {
+  color: #666;
+  margin-top: 0;
+}
+
+.run-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.run-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.run-form button {
+  padding: 0.6rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.status {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.status-success {
+  background: #e6f4ea;
+  color: #1e7a34;
+}
+
+.status-error {
+  background: #fbe9e7;
+  color: #b3261e;
+}
