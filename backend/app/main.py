@@ -18,6 +18,7 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.services.repository import InMemoryRunRepository
 from app.services.storage import LocalStorageService
+from app.slicer.prusaslicer import PrusaSlicerService
 
 logger = get_logger(__name__)
 
@@ -41,6 +42,10 @@ async def lifespan(app: FastAPI):
 
     app.state.run_repository = InMemoryRunRepository()
     app.state.storage_service = LocalStorageService(settings.local_storage_dir)
+    app.state.slicer_service = PrusaSlicerService(
+        binary_path=settings.prusaslicer_binary_path,
+        timeout_seconds=settings.prusaslicer_timeout_seconds,
+    )
 
     logger.info(
         "strata backend starting",

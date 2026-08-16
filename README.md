@@ -13,29 +13,44 @@ Full design rationale and the responsibility split between Gemini/ADK,
 deterministic optimization code, PrusaSlicer, and Google Cloud lives in
 [`docs/architecture.md`](docs/architecture.md).
 
-## Current MVP scope (this pass: infrastructure only)
+## Current MVP scope
 
-This pass establishes the project skeleton — **it does not implement the
-autonomous agent loop yet.** Concretely, what exists today:
+**It does not implement the autonomous (multi-candidate, Gemini/ADK-driven)
+agent loop yet.** What it does do: a real, working, single-candidate,
+end-to-end pipeline —
+
+```
+STL upload → StorageService → one default CandidateConfiguration
+  → PrusaSlicerService → parse real metrics → hard-constraint check
+  → DecisionRecord → API response
+```
+
+wired into `POST /api/v1/runs`. Concretely, what exists today:
 
 - A typed domain model: `OptimizationRun`, `CandidateConfiguration`,
   `HardConstraints`, `OptimizationPreferences`, `DecisionRecord`, `SliceResult`.
-- A FastAPI backend with `/health` and a working (metadata-only)
-  `/api/v1/runs` create/list/get endpoint, backed by an in-memory repository.
+- A FastAPI backend with `/health` and `/api/v1/runs`: `POST` accepts a real
+  STL upload + goal metadata, runs the full pipeline above synchronously,
+  and returns the run with its candidate(s) and decision ledger; `GET`
+  (list/by-id) returns the same.
 - Clean service interfaces — `StorageService` (local filesystem today, GCS
   later), `RunRepository` (in-memory today, Firestore later), `SlicerService`
-  — plus a `PrusaSlicerService` skeleton that shells out to the real
-  PrusaSlicer CLI and raises `SlicerUnavailableError` if it isn't installed.
+  — plus a real `PrusaSlicerService` adapter that shells out to the
+  PrusaSlicer CLI (command construction verified against PrusaSlicer's own
+  C++ source; not yet run against a real binary — none is installed in this
+  environment, see Limitations) and raises `SlicerUnavailableError` cleanly
+  when it isn't.
 - Deterministic, unit-tested optimization utilities: hard-constraint
   checking, Pareto dominance/frontier, and preference-based winner selection.
 - A placeholder `AgentPlanner` interface (unimplemented) marking where
-  Gemini/ADK will plug in.
-- A minimal React/Vite frontend shell with the intake form (STL upload,
-  quantity, constraints, priority) minimally wired to `POST /api/v1/runs`.
+  Gemini/ADK will plug in; `app/agent/default_candidate.py` is the
+  deterministic stand-in it will eventually replace.
+- A minimal React/Vite frontend shell with the intake form (not yet updated
+  to show real slicing results — see Limitations).
 
-**Not yet built:** the actual optimize loop (candidate generation → slice →
-evaluate → iterate), any Gemini/ADK calls, STL-to-StorageService wiring on
-the API, Firestore/GCS-backed implementations, and any Cloud Run deployment.
+**Not yet built:** multi-candidate search, any Gemini/ADK calls, Firestore/GCS-
+backed implementations, Cloud Run deployment, and a background job queue
+(the pipeline above runs synchronously inside the HTTP request).
 
 ## Architecture
 
@@ -94,9 +109,17 @@ cd backend
 pytest -q
 ```
 
-35 tests currently cover the health/startup endpoints, the runs API,
-constraint/Pareto/selection logic, the storage service, and the PrusaSlicer
-command builder + G-code parsing helpers.
+54 tests currently pass (1 additional integration test auto-skips — see
+below), covering the health/startup endpoints, the runs API (including a
+mocked full slice-to-decision run), constraint/Pareto/selection logic, the
+storage service, the orchestrator, and the PrusaSlicer command builder +
+G-code parsing helpers.
+
+`tests/test_integration_real_prusaslicer.py` slices the real
+`sample_data/cube_20mm.stl` through an actual `prusa-slicer` binary — it
+auto-skips when none is found (the case in this environment) so a green run
+never implies real slicing was exercised. To actually run it, install
+PrusaSlicer (see Limitations) and run `pytest -m integration -q`.
 
 ### Docker
 
@@ -114,21 +137,41 @@ in this image yet (see `backend/Dockerfile` for why and the plan to add it).
 
 ## Current limitations
 
-- No agent loop: `/api/v1/runs` records a run but doesn't slice or optimize.
+- **PrusaSlicer is not installed in this development environment** (checked
+  PATH and standard Windows install locations) — this is the single
+  blocker on proving real end-to-end slicing. `PrusaSlicerService`'s CLI
+  flags and G-code parsing were verified by reading PrusaSlicer's own C++
+  source (master branch: `Setup.cpp`, `PrintConfig.cpp`,
+  `ProcessTransform.cpp`, `ProcessActions.cpp`, `LoadPrintData.cpp`,
+  `Print.cpp`, `GCodeProcessor.cpp` — see comments in
+  `backend/app/slicer/prusaslicer.py`), not guessed, but have never been run
+  against a real binary. To unblock: install PrusaSlicer
+  (https://www.prusa3d.com/page/prusaslicer_424/) and either put
+  `prusa-slicer`/`prusa-slicer-console.exe` on PATH or set
+  `STRATA_PRUSASLICER_BINARY_PATH` to its full path, then run
+  `pytest -m integration -q` from `backend/`.
+- Single candidate only: `POST /api/v1/runs` always tries exactly one fixed,
+  conservative configuration (0.2mm layers, 20% infill, 2 perimeters, no
+  supports). No search, no multiple candidates, no Pareto comparison in the
+  live path yet (the utilities exist and are tested in `app/optimization/`,
+  just not wired into the API loop).
 - No Gemini/ADK integration — `AgentPlanner` is an interface only.
-- STL upload isn't wired to `StorageService` from the API yet; the frontend
-  form collects a file but only sends metadata.
-- `PrusaSlicerService`'s CLI flags and G-code parsing are based on commonly
-  documented conventions, marked `# TODO(verify)`, and unverified against a
-  real PrusaSlicer install (none is available in this environment).
+- Printer/material *profiles* aren't wired up — slicing uses PrusaSlicer's
+  built-in engine defaults for anything beyond the five MVP variables.
+- The pipeline runs synchronously inside the HTTP request (can take up to
+  `STRATA_PRUSASLICER_TIMEOUT_SECONDS`); no background job queue yet.
+- The frontend form hasn't been updated to show slicing results — left
+  alone this pass since real slicing can't be exercised without PrusaSlicer
+  installed.
 - Persistence and storage are local/in-memory only; no Firestore or GCS.
 - No Cloud Run deployment yet.
 
 ## Next milestone
 
-Wire one true end-to-end vertical slice: STL upload → `StorageService` →
-a single default `CandidateConfiguration` → `PrusaSlicerService` (after
-verifying its CLI flags against a real installed PrusaSlicer binary) →
-`app/optimization` constraint check → one `DecisionRecord` written and
-returned to the frontend. That proves the whole pipe before adding
-multi-candidate search or Gemini/ADK planning on top.
+Install PrusaSlicer locally, run the integration test
+(`pytest -m integration -q`) to confirm the verified-from-source CLI flags
+and G-code parsing actually work against a real binary, and fix anything
+that doesn't match. Once that's proven, update the frontend to show real
+slicing results, then move on to multi-candidate search (the
+`app/optimization` Pareto/selection utilities already exist for this) before
+adding Gemini/ADK planning on top.

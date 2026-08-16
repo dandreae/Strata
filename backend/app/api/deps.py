@@ -12,6 +12,7 @@ from fastapi import Request
 
 from app.services.repository import RunRepository
 from app.services.storage import StorageService
+from app.slicer.base import SlicerService
 
 
 def get_run_repository(request: Request) -> RunRepository:
@@ -20,3 +21,7 @@ def get_run_repository(request: Request) -> RunRepository:
 
 def get_storage_service(request: Request) -> StorageService:
     return request.app.state.storage_service
+
+
+def get_slicer_service(request: Request) -> SlicerService:
+    return request.app.state.slicer_service

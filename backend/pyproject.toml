@@ -29,3 +29,6 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: exercises a real external binary (e.g. PrusaSlicer); auto-skipped when unavailable.",
+]

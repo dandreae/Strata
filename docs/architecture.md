@@ -110,25 +110,39 @@ dump. `RunRepository.save_decision`/`list_decisions` persist and retrieve
 these per run; the frontend can render them as a timeline once the agent
 loop is producing real decisions.
 
-## 5. What's deliberately not built yet
+## 5. What's built vs. what's deliberately not built yet
+
+Built (as of the single-candidate milestone): `POST /api/v1/runs` now wires
+a real STL upload → `StorageService` → one default `CandidateConfiguration`
+(`app/agent/default_candidate.py`) → `PrusaSlicerService` → real metric
+parsing → `app/optimization` constraint check → one `DecisionRecord`,
+end to end, synchronously, inside the request (`app/services/orchestrator.py`).
+`PrusaSlicerService`'s CLI flags and G-code comment parsing are grounded in
+PrusaSlicer's own C++ source (see comments in `app/slicer/prusaslicer.py`),
+not guessed — but have never run against a real binary, since none is
+installed in this development environment. A real (auto-skipping)
+integration test exists at `tests/test_integration_real_prusaslicer.py`.
+
+Still not built:
 
 - No Gemini/ADK calls (interface only, see `app/agent/interfaces.py`).
-- No agent loop wiring `/api/v1/runs` → candidate generation → slicing →
-  optimization → decision ledger.
-- No STL upload wired to `StorageService` from the API (accepted as
-  metadata only for now).
+- No multi-candidate search — exactly one fixed candidate is tried per run.
+  `app/optimization`'s Pareto/selection utilities exist and are tested but
+  aren't wired into the live API loop yet.
+- No printer/material *profile* loading (`--load`) — slicing uses
+  PrusaSlicer's built-in defaults for anything beyond the five MVP
+  variables; `printer_profile` on a run is currently informational only.
+- No background job queue — the pipeline blocks the HTTP request for the
+  duration of slicing.
 - No `GcsStorageService` / `FirestoreRunRepository` (interfaces are ready
   for them — see `app/services/storage.py`, `app/services/repository.py`).
 - No Cloud Run deployment, Cloud Build pipeline, or Terraform.
-- PrusaSlicer CLI flags and G-code parsing in `app/slicer/prusaslicer.py`
-  are marked `# TODO(verify)` — they follow commonly-documented conventions
-  but have not been checked against a real installed PrusaSlicer binary.
+- The frontend hasn't been updated to display real slicing results.
 
 ## 6. Next milestone
 
-Wire an end-to-end single-candidate path: upload STL → store via
-`StorageService` → build one `CandidateConfiguration` from user-declared
-defaults → slice via `PrusaSlicerService` (once flags are verified against a
-real binary) → evaluate via `app/optimization` → write one `DecisionRecord`.
-That proves the full vertical slice before adding multi-candidate search or
-Gemini/ADK planning on top.
+Install PrusaSlicer and run `pytest -m integration -q` to confirm the
+source-verified CLI flags and G-code parsing hold up against a real binary
+— that's the single blocker on proving the pipeline in §5 actually slices.
+Then update the frontend to show real results, and move on to
+multi-candidate search before adding Gemini/ADK planning on top.

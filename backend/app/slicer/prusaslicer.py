@@ -1,14 +1,48 @@
 """PrusaSlicerService: shells out to the real PrusaSlicer CLI.
 
-STATUS: skeleton. Command construction and G-code parsing below are based on
-commonly-documented PrusaSlicer/Slic3r CLI conventions but have **not** been
-verified against a specific installed PrusaSlicer version on this machine
-(PrusaSlicer is not installed in this environment). Every flag/parsing
-assumption that needs verification is marked with `# TODO(verify):`.
+STATUS: implemented, but never executed against a real binary — PrusaSlicer
+is not installed anywhere in this development environment (checked PATH and
+standard Windows install locations). Command construction and G-code parsing
+below are grounded in PrusaSlicer's own C++ source (master branch, fetched
+2026-08-16) rather than guessed:
 
-Do not wire this into a live optimization loop until those TODOs are
-resolved against `prusa-slicer --help` / `--help-fff` output from the actual
-binary that will run in production.
+  - `src/CLI/Setup.cpp`            — CLI argument parsing (--key value / =,
+                                      --no- prefix for booleans).
+  - `src/libslic3r/PrintConfig.cpp` — confirms `layer_height` (coFloat),
+                                      `fill_density` (coPercent), `perimeters`
+                                      (coInt), `support_material` (coBool,
+                                      default false) as real config keys, and
+                                      `rotate`/`rotate_x`/`rotate_y` as real
+                                      CLI transform options.
+  - `src/CLI/ProcessTransform.cpp` — rotation is applied in a FIXED order
+                                      (Z via `rotate`, then X, then Y)
+                                      regardless of argv order. Not
+                                      commutative for compound rotations.
+  - `src/CLI/LoadPrintData.cpp`    — `finalize_print_config()` merges CLI
+                                      overrides onto a fully-defaulted
+                                      `FullPrintConfig` even when no `--load`
+                                      profile is given, so slicing with only
+                                      the flags below (no profile) is valid
+                                      and uses PrusaSlicer's built-in
+                                      defaults for everything else.
+  - `src/libslic3r/Print.cpp`      — confirms the exact literal G-code
+                                      comment `"; filament used [g] ="`.
+  - `src/libslic3r/GCode/GCodeProcessor.cpp` — confirms the exact sprintf
+                                      format `"; estimated printing time (%s
+                                      mode) = %s\\n"`.
+
+One real, source-confirmed bug this fixed: `--fill-density` MUST be given
+with a `%` suffix (e.g. `20%`). A bare number like `20` has no `%`, so
+PrusaSlicer's legacy-config compatibility path (`PrintConfigDef::handle_legacy`
+in PrintConfig.cpp) treats it as an old-style 0..1 fraction and multiplies it
+by 100 — silently turning "20% infill" into "2000%".
+
+Not yet resolved (documented as limitations, not guessed): printer/material
+*profile* selection (`--load <file.ini>` / `--printer-profile`) is not wired
+up — there is no profile file lookup in this codebase yet, so `printer_profile`
+on a candidate is currently informational only. This is fine for this
+milestone because (per LoadPrintData.cpp above) PrusaSlicer slices correctly
+with built-in defaults in the profile's absence.
 """
 
 from __future__ import annotations
@@ -75,24 +109,34 @@ class PrusaSlicerService(SlicerService):
     ) -> PrusaSlicerCommand:
         """Build the CLI argv for slicing `stl_path` with `candidate_configuration`.
 
-        Flags used here and their confidence level:
-          - `-g` / `--export-gcode`     : documented, high confidence.
-          - `--layer-height <mm>`        : documented, high confidence.
-          - `--fill-density <percent>`   : documented, high confidence.
-          - `--perimeters <n>`           : documented, high confidence.
-          - `--support-material`         : documented (boolean flag), high confidence.
-          - `--rotate-x/--rotate-y <deg>`, `--rotate <deg>` (Z)
-            # TODO(verify): confirm exact rotation flag names/semantics
-            # (combined multi-axis rotation may require a transform matrix
-            # or `--rotate-x`/`--rotate-y` may not exist in all versions)
-            # against the actual PrusaSlicer CLI help before relying on it.
-          - `--output <path>`            : documented, high confidence.
-          - printer/profile selection
-            # TODO(verify): whether to pass `--load <config.ini>` for a
-            # saved profile bundle, or individual `--printer-*` flags. This
-            # skeleton assumes a pre-exported PrusaSlicer config `.ini`
-            # named after `printer_profile` is available on disk; that
-            # lookup is NOT implemented yet.
+        Every flag here is confirmed against PrusaSlicer's CLI source (see
+        module docstring) — none are guessed:
+          - `--export-gcode` (aliases `--gcode`, `-g`): action flag, defined
+            in `CLIActionsConfigDef` (PrintConfig.cpp) as `export_gcode`.
+          - `--layer-height <mm>`: config key `layer_height` (coFloat).
+          - `--fill-density <percent>%`: config key `fill_density` (coPercent)
+            — MUST include the `%` sign, see module docstring.
+          - `--perimeters <n>`: config key `perimeters` (coInt).
+          - `--support-material`: config key `support_material` (coBool,
+            default false) — presence alone sets true; PrusaSlicer's `--no-`
+            prefix convention would set it false explicitly, but we simply
+            omit the flag when disabled since false is already the default.
+          - `--rotate-x/--rotate-y/--rotate <deg>`: CLI transform options
+            confirmed in `CLITransformConfigDef` (PrintConfig.cpp). NOTE:
+            `ProcessTransform.cpp` applies these in a fixed order — Z
+            (`--rotate`) first, then X, then Y — regardless of argv order,
+            because it checks `has("rotate")`, then `has("rotate_x")`, then
+            `has("rotate_y")` sequentially. Rotation is not commutative, so
+            for compound rotations the *effective* order is always Z, X, Y.
+          - `--output <path>`: config key `output`, confirmed in
+            `CLIMiscConfigDef`.
+
+        Printer/material profile selection (`--load` / `--printer-profile`)
+        is intentionally NOT included: no profile file lookup exists in this
+        codebase yet. `printer_profile` is accepted for future use and
+        currently only affects nothing (PrusaSlicer slices against its
+        built-in defaults for anything not set above — confirmed valid by
+        `LoadPrintData.cpp::finalize_print_config`, see module docstring).
         """
         output_path = output_dir / f"{candidate_configuration.id}.gcode"
 
@@ -102,7 +146,7 @@ class PrusaSlicerService(SlicerService):
             "--layer-height",
             str(candidate_configuration.layer_height),
             "--fill-density",
-            str(candidate_configuration.infill_percent),
+            f"{candidate_configuration.infill_percent}%",
             "--perimeters",
             str(candidate_configuration.perimeter_count),
         ]
@@ -110,7 +154,6 @@ class PrusaSlicerService(SlicerService):
         if candidate_configuration.supports_enabled:
             argv.append("--support-material")
 
-        # TODO(verify): rotation flag names/units against real CLI help.
         if candidate_configuration.orientation_x:
             argv += ["--rotate-x", str(candidate_configuration.orientation_x)]
         if candidate_configuration.orientation_y:
@@ -118,7 +161,8 @@ class PrusaSlicerService(SlicerService):
         if candidate_configuration.orientation_z:
             argv += ["--rotate", str(candidate_configuration.orientation_z)]
 
-        # TODO(verify): printer profile loading strategy (see docstring above).
+        # Not yet wired up — see docstring. Accepted now so the signature
+        # doesn't need to change again once profile loading is added.
         _ = printer_profile
 
         argv += ["--output", str(output_path), str(stl_path)]
@@ -149,10 +193,21 @@ class PrusaSlicerService(SlicerService):
     def parse_print_time_seconds(gcode_text: str) -> int | None:
         """Extract estimated print time from PrusaSlicer's G-code header comment.
 
-        # TODO(verify): PrusaSlicer typically emits a line similar to
-        # `; estimated printing time (normal mode) = 2h 3m 45s` but the exact
-        # wording/format can vary by version and print mode (normal/silent).
-        # This regex should be validated against real slicer output.
+        Format confirmed in `src/libslic3r/GCode/GCodeProcessor.cpp`:
+        `sprintf(buf, "; estimated printing time (%s mode) = %s\\n", ...)`,
+        e.g. `; estimated printing time (normal mode) = 2h 3m 45s`. Silent
+        mode (if enabled) and a separate "estimated *first layer* printing
+        time" line may also be present; this regex's literal prefix
+        "estimated printing time" does not match the first-layer variant
+        ("estimated first layer printing time"), and normal mode is always
+        emitted before silent mode, so `re.search` (leftmost match) reliably
+        picks the total normal-mode time.
+
+        The exact sub-format used by PrusaSlicer's internal `get_time_dhms`
+        helper (units omitted when zero, e.g. `45s` alone under a minute)
+        was not directly located in the fetched source, but is extremely
+        well attested by real-world PrusaSlicer G-code output; this parser
+        has not been run against a real binary's output in this environment.
         """
         match = re.search(
             r"estimated printing time.*?=\s*(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?",
@@ -169,10 +224,11 @@ class PrusaSlicerService(SlicerService):
     def parse_filament_grams(gcode_text: str) -> float | None:
         """Extract filament usage in grams from PrusaSlicer's G-code header comment.
 
-        # TODO(verify): PrusaSlicer typically emits
-        # `; filament used [g] = 12.34` (grams) alongside a `[mm]`/`[cm3]`
-        # variant. Confirm which are always present for the configured
-        # printer profile before depending on this in the optimization loop.
+        Literal format confirmed in `src/libslic3r/Print.cpp`:
+        `PrintStatistics::FilamentUsedGMask = "; filament used [g] ="`,
+        e.g. `; filament used [g] = 12.34`. A `[mm]`/`[cm3]` variant also
+        exists (`FilamentUsedMmMask`/`FilamentUsedCm3Mask`) but grams is what
+        Strata's hard constraints are expressed in, so only `[g]` is parsed.
         """
         match = re.search(r"filament used \[g\]\s*=\s*([\d.]+)", gcode_text, re.IGNORECASE)
         if not match:
@@ -239,7 +295,7 @@ class PrusaSlicerService(SlicerService):
         # NOTE: gcode_path points into a working directory that persists
         # after this call returns. The caller is responsible for persisting
         # the artifact via StorageService and removing this directory
-        # afterward (not yet wired up in this skeleton).
+        # afterward — see app/services/orchestrator.py.
         return SliceResult(
             success=True,
             print_time_seconds=print_time,
