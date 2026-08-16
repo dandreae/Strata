@@ -1,8 +1,9 @@
 .page {
-  max-width: 480px;
+  max-width: 640px;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 2rem 1rem 4rem;
   font-family: system-ui, sans-serif;
+  color: #1a1a1a;
 }
 
 h1 {
@@ -19,6 +20,9 @@ h1 {
   flex-direction: column;
   gap: 1rem;
   margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
 }
 
 .run-form label {
@@ -28,24 +32,169 @@ h1 {
   font-size: 0.9rem;
 }
 
+.run-form input,
+.run-form select {
+  padding: 0.4rem;
+  font-size: 0.95rem;
+}
+
 .run-form button {
   padding: 0.6rem;
   font-size: 1rem;
   cursor: pointer;
 }
 
+.run-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .status {
   margin-top: 1rem;
-  padding: 0.5rem;
+  padding: 0.6rem 0.8rem;
   border-radius: 4px;
 }
 
-.status-success {
-  background: #e6f4ea;
-  color: #1e7a34;
+.status ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.status-loading {
+  background: #eef2f7;
+  color: #33475b;
 }
 
 .status-error {
   background: #fbe9e7;
   color: #b3261e;
+}
+
+/* --- Results --- */
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.result-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.result-card h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #555;
+}
+
+.result-card-error {
+  border-color: #e0a394;
+  background: #fdf3f1;
+}
+
+.spec-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 1.5rem;
+  row-gap: 0.4rem;
+  margin: 0;
+}
+
+.spec-grid dt {
+  color: #666;
+}
+
+.spec-grid dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.requirement-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.requirement {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.requirement-mark {
+  font-weight: 700;
+  width: 1rem;
+  flex-shrink: 0;
+}
+
+.requirement-pass .requirement-mark {
+  color: #1e7a34;
+}
+
+.requirement-fail .requirement-mark {
+  color: #b3261e;
+}
+
+.requirement-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.requirement-actual {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.decision-label {
+  display: inline-block;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  margin: 0 0 0.5rem;
+}
+
+.decision-accept {
+  background: #e6f4ea;
+  color: #1e7a34;
+}
+
+.decision-reject {
+  background: #fbe9e7;
+  color: #b3261e;
+}
+
+.decision-outcome {
+  margin: 0 0 0.75rem;
+}
+
+.decision-evidence-heading {
+  margin: 0 0 0.25rem;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.evidence-list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+}
+
+.decision-human {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
 }

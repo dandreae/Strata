@@ -32,6 +32,20 @@ class RunListResponse(BaseModel):
     runs: list[RunResponse]
 
 
+class ConstraintCheckResponse(BaseModel):
+    """One structured, backend-computed pass/fail result for a hard
+    constraint — see app.optimization.constraints.evaluate_constraint_checks.
+    Lets the frontend render a requirements checklist without recomputing
+    `actual <= limit` in TypeScript."""
+
+    key: str
+    label: str
+    passed: bool
+    limit: float
+    actual: float | None
+    unit: str
+
+
 class CandidateResponse(BaseModel):
     id: str
     orientation_x: float
@@ -46,6 +60,7 @@ class CandidateResponse(BaseModel):
     filament_grams: float | None
     slicer_output_path: str | None
     failure_reason: str | None
+    constraint_checks: list[ConstraintCheckResponse] = Field(default_factory=list)
 
 
 class DecisionResponse(BaseModel):

@@ -54,6 +54,18 @@ def test_create_run_slices_and_returns_real_metrics(client: TestClient) -> None:
     assert candidate["perimeter_count"] == 2
     assert candidate["supports_enabled"] is False
 
+    checks = {c["key"]: c for c in candidate["constraint_checks"]}
+    assert checks["max_print_time_seconds"] == {
+        "key": "max_print_time_seconds",
+        "label": "Print time",
+        "passed": True,
+        "limit": 10800.0,
+        "actual": 8700,
+        "unit": "s",
+    }
+    assert checks["max_filament_grams"]["passed"] is True
+    assert checks["max_filament_grams"]["actual"] == 61.43
+
     assert len(body["decisions"]) == 1
     decision = body["decisions"][0]
     assert decision["selected_action"] == "accept_candidate"
@@ -76,6 +88,12 @@ def test_create_run_rejects_candidate_that_violates_constraints(client: TestClie
     body = response.json()
     assert body["status"] == "completed"
     assert body["decisions"][0]["selected_action"] == "reject_candidate"
+
+    checks = {c["key"]: c for c in body["candidates"][0]["constraint_checks"]}
+    assert checks["max_filament_grams"]["passed"] is False
+    assert checks["max_filament_grams"]["actual"] == 61.43
+    assert checks["max_filament_grams"]["limit"] == 10.0
+    assert checks["max_print_time_seconds"]["passed"] is True
 
 
 def test_create_run_handles_slicer_unavailable_without_500(client: TestClient) -> None:

@@ -7,6 +7,8 @@ filament usage.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from app.models.candidate import CandidateConfiguration, CandidateStatus
 from app.models.run import HardConstraints
 
@@ -54,4 +56,60 @@ def filter_feasible(
     return [c for c in candidates if satisfies_hard_constraints(c, constraints)]
 
 
-__all__ = ["constraint_violations", "satisfies_hard_constraints", "filter_feasible"]
+@dataclass(frozen=True)
+class ConstraintCheck:
+    """One structured, per-constraint pass/fail result.
+
+    Exists so API consumers (the frontend) can render a requirements
+    checklist without recomputing `actual <= limit` themselves — that
+    comparison stays deterministic backend code, per the project's
+    Gemini/deterministic-code split (see docs/architecture.md).
+    """
+
+    key: str
+    label: str
+    passed: bool
+    limit: float
+    actual: float | None
+    unit: str
+
+
+def evaluate_constraint_checks(
+    candidate: CandidateConfiguration, constraints: HardConstraints
+) -> list[ConstraintCheck]:
+    """Structured, per-constraint version of `constraint_violations`.
+
+    One entry per hard constraint the MVP supports (print time, material).
+    `actual` is `None` when the metric is missing (unsliced/failed candidate,
+    or a metric PrusaSlicer's output didn't contain) — such checks are
+    always reported as failed, never silently passed or guessed.
+    """
+    return [
+        ConstraintCheck(
+            key="max_print_time_seconds",
+            label="Print time",
+            passed=candidate.print_time_seconds is not None
+            and candidate.print_time_seconds <= constraints.max_print_time_seconds,
+            limit=constraints.max_print_time_seconds,
+            actual=candidate.print_time_seconds,
+            unit="s",
+        ),
+        ConstraintCheck(
+            key="max_filament_grams",
+            label="Material",
+            passed=candidate.filament_grams is not None
+            and candidate.filament_grams <= constraints.max_filament_grams,
+            limit=constraints.max_filament_grams,
+            actual=candidate.filament_grams,
+            unit="g",
+        ),
+    ]
+
+
+__all__ = [
+    "constraint_violations",
+    "satisfies_hard_constraints",
+    "filter_feasible",
+    "ConstraintCheck",
+    "evaluate_constraint_checks",
+]

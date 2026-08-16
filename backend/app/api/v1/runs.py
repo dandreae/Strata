@@ -19,6 +19,7 @@ from app.api.deps import get_run_repository, get_slicer_service, get_storage_ser
 from app.core.errors import NotFoundError, ValidationFailedError
 from app.models.api import (
     CandidateResponse,
+    ConstraintCheckResponse,
     DecisionResponse,
     RunDetailResponse,
     RunListResponse,
@@ -27,6 +28,7 @@ from app.models.api import (
 from app.models.candidate import CandidateConfiguration
 from app.models.decision import DecisionRecord
 from app.models.run import HardConstraints, OptimizationObjective, OptimizationPreferences, OptimizationRun
+from app.optimization.constraints import evaluate_constraint_checks
 from app.services.orchestrator import execute_single_candidate_run
 from app.services.repository import RunRepository, RunRepositoryError
 from app.services.storage import StorageService
@@ -36,6 +38,14 @@ from app.slicer.base import SlicerService
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+def _to_candidate_response(candidate: CandidateConfiguration, constraints: HardConstraints) -> CandidateResponse:
+    checks = evaluate_constraint_checks(candidate, constraints)
+    return CandidateResponse(
+        **candidate.model_dump(),
+        constraint_checks=[ConstraintCheckResponse(**vars(c)) for c in checks],
+    )
+
+
 def _to_detail_response(
     run: OptimizationRun,
     candidates: list[CandidateConfiguration],
@@ -43,7 +53,7 @@ def _to_detail_response(
 ) -> RunDetailResponse:
     return RunDetailResponse(
         **run.model_dump(),
-        candidates=[CandidateResponse(**c.model_dump()) for c in candidates],
+        candidates=[_to_candidate_response(c, run.hard_constraints) for c in candidates],
         decisions=[DecisionResponse(**d.model_dump()) for d in decisions],
     )
 
