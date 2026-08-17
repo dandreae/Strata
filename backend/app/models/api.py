@@ -61,6 +61,23 @@ class CandidateResponse(BaseModel):
     slicer_output_path: str | None
     failure_reason: str | None
     constraint_checks: list[ConstraintCheckResponse] = Field(default_factory=list)
+    is_feasible: bool = Field(
+        default=False, description="True if the candidate sliced successfully and passed every hard constraint."
+    )
+    is_pareto_optimal: bool = Field(
+        default=False, description="True if no other feasible candidate in this run dominates this one."
+    )
+    is_selected: bool = Field(default=False, description="True if this is the run's selected/winning candidate.")
+
+
+class OptimizationSummaryResponse(BaseModel):
+    """Run-level counts the frontend can render directly — never needs to
+    recount/derive these from the candidate list itself."""
+
+    candidates_tested: int
+    succeeded: int
+    feasible: int
+    pareto_optimal: int
 
 
 class DecisionResponse(BaseModel):
@@ -85,3 +102,4 @@ class RunDetailResponse(RunResponse):
 
     candidates: list[CandidateResponse] = Field(default_factory=list)
     decisions: list[DecisionResponse] = Field(default_factory=list)
+    optimization_summary: OptimizationSummaryResponse

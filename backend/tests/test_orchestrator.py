@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from app.models.candidate import CandidateStatus
+from app.models.candidate import CandidateConfiguration, CandidateStatus
 from app.models.run import HardConstraints, OptimizationObjective, OptimizationPreferences, OptimizationRun, RunStatus
 from app.models.slicer import SliceResult
-from app.services.orchestrator import execute_single_candidate_run
+from app.services.orchestrator import execute_optimization_run
 from app.services.repository import InMemoryRunRepository
 from app.services.storage import LocalStorageService
 from tests.fakes import FakeSlicerService
@@ -25,154 +25,301 @@ def _make_run(**overrides) -> OptimizationRun:
     return OptimizationRun(**defaults)
 
 
-def _fake_gcode_dir(tmp_path: Path, text: str) -> Path:
-    gcode_dir = tmp_path / "fake-slice-output"
+def _candidate(run_id: str, **overrides) -> CandidateConfiguration:
+    defaults = dict(run_id=run_id, layer_height=0.2, infill_percent=20, perimeter_count=2)
+    defaults.update(overrides)
+    return CandidateConfiguration(**defaults)
+
+
+def _fake_gcode(tmp_path: Path, name: str, text: str) -> Path:
+    gcode_dir = tmp_path / f"fake-slice-{name}"
     gcode_dir.mkdir()
-    (gcode_dir / "out.gcode").write_text(text)
-    return gcode_dir / "out.gcode"
+    path = gcode_dir / "out.gcode"
+    path.write_text(text)
+    return path
 
 
-def test_successful_slice_within_constraints_accepts_candidate(tmp_path: Path) -> None:
+def _result(tmp_path: Path, name: str, *, time_s: int, grams: float) -> SliceResult:
+    gcode_path = _fake_gcode(
+        tmp_path,
+        name,
+        f"; estimated printing time (normal mode) = {time_s // 3600}h {time_s % 3600 // 60}m {time_s % 60}s\n"
+        f"; filament used [g] = {grams}\n",
+    )
+    return SliceResult(success=True, print_time_seconds=time_s, filament_grams=grams, gcode_path=str(gcode_path))
+
+
+def _setup(tmp_path: Path):
     repository = InMemoryRunRepository()
     storage = LocalStorageService(tmp_path / "storage")
+    stl_path = tmp_path / "part.stl"
+    stl_path.write_text("solid part\nendsolid part\n")
+    return repository, storage, stl_path
+
+
+# --- multi-candidate happy path --------------------------------------------
+
+
+def test_all_candidates_attempted_and_persisted_independently(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
     run = _make_run()
     repository.create_run(run)
 
-    stl_path = tmp_path / "part.stl"
-    stl_path.write_text("solid part\nendsolid part\n")
-
-    gcode_path = _fake_gcode_dir(
-        tmp_path,
-        "; estimated printing time (normal mode) = 2h 25m 0s\n; filament used [g] = 61.43\n",
-    )
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20, 0.25)]
     slicer = FakeSlicerService(
-        result=SliceResult(success=True, print_time_seconds=8700, filament_grams=61.43, gcode_path=str(gcode_path))
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=4.5),
+            _result(tmp_path, "c", time_s=1200, grams=3.5),
+        ]
     )
 
-    result = execute_single_candidate_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
-
-    assert result.run.status == RunStatus.COMPLETED
-    assert result.candidate.status == CandidateStatus.SUCCEEDED
-    assert result.candidate.print_time_seconds == 8700
-    assert result.candidate.filament_grams == 61.43
-    assert result.candidate.slicer_output_path is not None
-    assert result.decision.selected_action == "accept_candidate"
-    assert result.decision.requires_human is False
-    assert not gcode_path.parent.exists()  # cleaned up after persisting
-
-
-def test_successful_slice_exceeding_constraints_rejects_candidate(tmp_path: Path) -> None:
-    repository = InMemoryRunRepository()
-    storage = LocalStorageService(tmp_path / "storage")
-    run = _make_run(hard_constraints=HardConstraints(max_print_time_seconds=3600, max_filament_grams=10))
-    repository.create_run(run)
-
-    stl_path = tmp_path / "part.stl"
-    stl_path.write_text("solid part\nendsolid part\n")
-
-    gcode_path = _fake_gcode_dir(
-        tmp_path,
-        "; estimated printing time (normal mode) = 2h 25m 0s\n; filament used [g] = 61.43\n",
-    )
-    slicer = FakeSlicerService(
-        result=SliceResult(success=True, print_time_seconds=8700, filament_grams=61.43, gcode_path=str(gcode_path))
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
     )
 
-    result = execute_single_candidate_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
+    assert len(result.candidates) == 3
+    assert all(c.status == CandidateStatus.SUCCEEDED for c in result.candidates)
+    assert {c.print_time_seconds for c in result.candidates} == {1000, 900, 1200}
+    assert len(slicer.calls) == 3
 
-    assert result.run.status == RunStatus.COMPLETED
-    assert result.candidate.status == CandidateStatus.SUCCEEDED
-    assert result.decision.selected_action == "reject_candidate"
-    assert "exceeds" in result.decision.outcome
-    assert result.decision.requires_human is False
+    stored = repository.list_candidates(run.id)
+    assert len(stored) == 3
 
 
-def test_slicer_unavailable_fails_run_without_crashing(tmp_path: Path) -> None:
-    repository = InMemoryRunRepository()
-    storage = LocalStorageService(tmp_path / "storage")
+def test_one_candidate_slicing_failure_does_not_kill_the_run(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
     run = _make_run()
     repository.create_run(run)
 
-    stl_path = tmp_path / "part.stl"
-    stl_path.write_text("solid part\nendsolid part\n")
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20, 0.25)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            SliceResult(success=False, error="prusa-slicer exited with code 1"),
+            _result(tmp_path, "c", time_s=1200, grams=3.5),
+        ]
+    )
 
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    statuses = [c.status for c in result.candidates]
+    assert statuses == [CandidateStatus.SUCCEEDED, CandidateStatus.FAILED, CandidateStatus.SUCCEEDED]
+    assert result.candidates[1].failure_reason == "prusa-slicer exited with code 1"
+    # The run still completes and selects among the two that succeeded.
+    assert result.run.status in (RunStatus.COMPLETED, RunStatus.NEEDS_HUMAN_INPUT)
+
+
+# --- feasibility -------------------------------------------------------
+
+
+def test_feasible_and_infeasible_candidates_classified_correctly(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run(hard_constraints=HardConstraints(max_print_time_seconds=1100, max_filament_grams=5))
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "feasible", time_s=1000, grams=4.0),
+            _result(tmp_path, "infeasible", time_s=1500, grams=9.0),  # violates both
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    feasible_ids = {c.id for c in result.candidates if c.print_time_seconds == 1000}
+    assert feasible_ids == {candidates[0].id}
+    # The infeasible candidate is never marked Pareto-optimal or selected.
+    infeasible = next(c for c in result.candidates if c.id == candidates[1].id)
+    assert infeasible.is_pareto_optimal is False
+    assert infeasible.is_selected is False
+
+
+# --- Pareto marking ------------------------------------------------------
+
+
+def test_dominated_candidate_is_not_marked_pareto_optimal(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20, 0.25)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "dominant", time_s=900, grams=3.0),
+            _result(tmp_path, "dominated", time_s=1200, grams=5.0),  # worse on both axes
+            _result(tmp_path, "tradeoff", time_s=800, grams=6.0),  # faster, more material: tradeoff
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    by_time = {c.print_time_seconds: c for c in result.candidates}
+    assert by_time[900].is_pareto_optimal is True
+    assert by_time[1200].is_pareto_optimal is False
+    assert by_time[800].is_pareto_optimal is True
+
+
+# --- selection -------------------------------------------------------
+
+
+def test_minimize_material_selects_lowest_material_feasible_candidate(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run(optimization_preferences=OptimizationPreferences(objective=OptimizationObjective.MINIMIZE_MATERIAL))
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20, 0.25)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=3.0),  # lowest material
+            _result(tmp_path, "c", time_s=1200, grams=5.0),
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    winner = next(c for c in result.candidates if c.is_selected)
+    assert winner.filament_grams == 3.0
+    assert winner.id == candidates[1].id
+    assert result.decision.selected_action == "select_candidate"
+    assert result.run.status == RunStatus.COMPLETED
+
+
+def test_minimize_time_selects_fastest_feasible_candidate(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run(optimization_preferences=OptimizationPreferences(objective=OptimizationObjective.MINIMIZE_TIME))
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20, 0.25)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=1200, grams=3.0),
+            _result(tmp_path, "c", time_s=800, grams=5.0),  # fastest
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    winner = next(c for c in result.candidates if c.is_selected)
+    assert winner.print_time_seconds == 800
+    assert winner.id == candidates[2].id
+
+
+def test_balanced_with_genuine_tradeoff_escalates_without_choosing(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run(optimization_preferences=OptimizationPreferences(objective=OptimizationObjective.BALANCED))
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=900, grams=6.0),  # faster, more material
+            _result(tmp_path, "b", time_s=1200, grams=3.0),  # slower, less material
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    assert not any(c.is_selected for c in result.candidates)
+    assert result.decision.selected_action == "escalate_tradeoff"
+    assert result.decision.requires_human is True
+    assert result.run.status == RunStatus.NEEDS_HUMAN_INPUT
+    # Both mutually non-dominated candidates are still marked Pareto-optimal.
+    assert all(c.is_pareto_optimal for c in result.candidates)
+
+
+# --- no feasible candidates -------------------------------------------
+
+
+def test_no_feasible_candidates_selects_no_winner(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run(hard_constraints=HardConstraints(max_print_time_seconds=100, max_filament_grams=1))
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=1200, grams=5.0),
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    assert not any(c.is_selected for c in result.candidates)
+    assert not any(c.is_pareto_optimal for c in result.candidates)
+    assert result.decision.selected_action == "no_feasible_candidate"
+    assert result.run.status == RunStatus.INFEASIBLE
+
+
+# --- run-level fatal conditions -----------------------------------------
+
+
+def test_slicer_unavailable_aborts_run_and_marks_all_candidates_failed(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20, 0.25)]
     slicer = FakeSlicerService(raise_unavailable=True)
 
-    result = execute_single_candidate_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
 
     assert result.run.status == RunStatus.FAILED
-    assert result.candidate.status == CandidateStatus.FAILED
+    assert all(c.status == CandidateStatus.FAILED for c in result.candidates)
     assert result.decision.selected_action == "abort_run"
-    assert "not found" in result.candidate.failure_reason
+    # Only the first candidate should have actually been attempted before aborting.
+    assert len(slicer.calls) == 1
 
 
-def test_slice_process_failure_rejects_candidate_without_crashing(tmp_path: Path) -> None:
-    repository = InMemoryRunRepository()
-    storage = LocalStorageService(tmp_path / "storage")
+def test_all_candidates_failing_to_slice_fails_the_run_without_crashing(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
     run = _make_run()
     repository.create_run(run)
 
-    stl_path = tmp_path / "part.stl"
-    stl_path.write_text("solid part\nendsolid part\n")
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    slicer = FakeSlicerService(result=SliceResult(success=False, error="no G-code produced"))
 
-    slicer = FakeSlicerService(result=SliceResult(success=False, error="prusa-slicer exited with code 1"))
-
-    result = execute_single_candidate_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
 
     assert result.run.status == RunStatus.FAILED
-    assert result.candidate.status == CandidateStatus.FAILED
-    assert result.decision.selected_action == "reject_candidate"
-    assert result.candidate.failure_reason == "prusa-slicer exited with code 1"
+    assert all(c.status == CandidateStatus.FAILED for c in result.candidates)
+    assert result.decision.selected_action == "abort_run"
+    assert len(slicer.calls) == 2  # both were attempted; failure is per-candidate, not fatal on its own
 
 
-def test_missing_metrics_are_never_fabricated_and_fail_constraints(tmp_path: Path) -> None:
-    repository = InMemoryRunRepository()
-    storage = LocalStorageService(tmp_path / "storage")
+# --- default candidate set ----------------------------------------------
+
+
+def test_defaults_to_generate_candidate_set_when_none_provided(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
     run = _make_run()
     repository.create_run(run)
 
-    stl_path = tmp_path / "part.stl"
-    stl_path.write_text("solid part\nendsolid part\n")
+    slicer = FakeSlicerService(result=SliceResult(success=True, print_time_seconds=100, filament_grams=1.0))
 
-    gcode_path = _fake_gcode_dir(tmp_path, "; no usable metadata in this gcode\n")
-    slicer = FakeSlicerService(
-        result=SliceResult(
-            success=True,
-            print_time_seconds=None,
-            filament_grams=None,
-            gcode_path=str(gcode_path),
-            warnings=["Could not parse print time from G-code output.", "Could not parse filament usage from G-code output."],
-        )
-    )
+    result = execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
 
-    result = execute_single_candidate_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
-
-    assert result.candidate.print_time_seconds is None
-    assert result.candidate.filament_grams is None
-    assert result.decision.selected_action == "reject_candidate"
-    assert any("Missing print_time_seconds" in e for e in result.decision.evidence)
-    assert any("Missing filament_grams" in e for e in result.decision.evidence)
-
-
-def test_run_and_candidate_are_persisted_to_repository(tmp_path: Path) -> None:
-    repository = InMemoryRunRepository()
-    storage = LocalStorageService(tmp_path / "storage")
-    run = _make_run()
-    repository.create_run(run)
-
-    stl_path = tmp_path / "part.stl"
-    stl_path.write_text("solid part\nendsolid part\n")
-
-    gcode_path = _fake_gcode_dir(
-        tmp_path, "; estimated printing time (normal mode) = 1h 0m 0s\n; filament used [g] = 10\n"
-    )
-    slicer = FakeSlicerService(
-        result=SliceResult(success=True, print_time_seconds=3600, filament_grams=10.0, gcode_path=str(gcode_path))
-    )
-
-    execute_single_candidate_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
-
-    stored_run = repository.get_run(run.id)
-    assert stored_run.status == RunStatus.COMPLETED
-    assert len(repository.list_candidates(run.id)) == 1
-    assert len(repository.list_decisions(run.id)) == 1
+    assert len(result.candidates) >= 6  # spec: ~6-8 candidates
+    assert len(slicer.calls) == len(result.candidates)

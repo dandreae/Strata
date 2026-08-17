@@ -39,3 +39,14 @@ class CandidateConfiguration(BaseModel):
     filament_grams: float | None = None
     slicer_output_path: str | None = None
     failure_reason: str | None = None
+
+    # --- Cross-candidate comparison, populated after the whole cohort in a
+    # run has been sliced and evaluated (app/services/orchestrator.py).
+    # Both are derived/denormalized for API convenience — the frontend
+    # should never need to recompute dominance or re-run selection itself.
+    is_pareto_optimal: bool = Field(
+        default=False, description="True if no other feasible candidate in this run dominates this one."
+    )
+    is_selected: bool = Field(
+        default=False, description="True if this is the candidate the run's DecisionRecord selected."
+    )

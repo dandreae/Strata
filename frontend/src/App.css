@@ -1,5 +1,5 @@
 .page {
-  max-width: 640px;
+  max-width: 760px;
   margin: 0 auto;
   padding: 2rem 1rem 4rem;
   font-family: system-ui, sans-serif;
@@ -197,4 +197,95 @@ h1 {
   margin: 0;
   color: #666;
   font-size: 0.9rem;
+}
+
+.decision-observation {
+  color: #555;
+  margin: 0 0 0.5rem;
+}
+
+/* --- Optimization summary --- */
+
+.summary-line {
+  margin: 0;
+}
+
+/* --- Selected candidate --- */
+
+.result-card-selected {
+  border-color: #1e7a34;
+  background: #f3faf5;
+  position: relative;
+}
+
+.selected-badge {
+  display: inline-block;
+  background: #1e7a34;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.metrics-grid {
+  margin: 1rem 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid #cfe4d5;
+}
+
+.result-card-pending {
+  border-color: #d8b45a;
+  background: #fdf8ec;
+}
+
+/* --- Comparison table --- */
+
+.comparison-scroll {
+  overflow-x: auto;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.comparison-table th,
+.comparison-table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #eee;
+}
+
+.comparison-table th {
+  color: #666;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.comparison-row-selected {
+  background: #f3faf5;
+  font-weight: 600;
+}
+
+.row-selected-tag {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1e7a34;
+  letter-spacing: 0.03em;
+}
+
+.cell-pass {
+  color: #1e7a34;
+}
+
+.cell-fail {
+  color: #b3261e;
 }

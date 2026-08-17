@@ -44,6 +44,16 @@ export interface Candidate {
   slicer_output_path: string | null;
   failure_reason: string | null;
   constraint_checks: ConstraintCheck[];
+  is_feasible: boolean;
+  is_pareto_optimal: boolean;
+  is_selected: boolean;
+}
+
+export interface OptimizationSummary {
+  candidates_tested: number;
+  succeeded: number;
+  feasible: number;
+  pareto_optimal: number;
 }
 
 export interface Decision {
@@ -71,6 +81,7 @@ export interface RunDetail {
   updated_at: string;
   candidates: Candidate[];
   decisions: Decision[];
+  optimization_summary: OptimizationSummary;
 }
 
 export interface CreateRunParams {

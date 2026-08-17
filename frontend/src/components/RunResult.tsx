@@ -1,4 +1,4 @@
-import type { Candidate, ConstraintCheck, Decision, RunDetail } from "../lib/api";
+import type { Candidate, ConstraintCheck, Decision, OptimizationSummary, RunDetail } from "../lib/api";
 import { formatDuration, formatGrams } from "../lib/duration";
 
 function formatCheckValue(value: number | null, unit: string): string {
@@ -6,44 +6,39 @@ function formatCheckValue(value: number | null, unit: string): string {
   return unit === "s" ? formatDuration(value) : formatGrams(value);
 }
 
-function CandidateSpec({ candidate }: { candidate: Candidate }) {
+function candidateLabel(run: RunDetail, candidate: Candidate): string {
+  return `Candidate #${run.candidates.indexOf(candidate) + 1}`;
+}
+
+function SummaryCard({ summary }: { summary: OptimizationSummary }) {
   return (
     <section className="result-card">
-      <h2>Candidate #1</h2>
-      <dl className="spec-grid">
-        <dt>Layer height</dt>
-        <dd>{candidate.layer_height.toFixed(2)} mm</dd>
-        <dt>Infill</dt>
-        <dd>{candidate.infill_percent}%</dd>
-        <dt>Supports</dt>
-        <dd>{candidate.supports_enabled ? "On" : "Off"}</dd>
-        <dt>Perimeters</dt>
-        <dd>{candidate.perimeter_count}</dd>
-        <dt>Orientation</dt>
-        <dd>
-          {candidate.orientation_x}° / {candidate.orientation_y}° / {candidate.orientation_z}°
-        </dd>
-      </dl>
+      <h2>Optimization summary</h2>
+      <p className="summary-line">
+        <strong>{summary.candidates_tested}</strong> candidates tested &nbsp;·&nbsp; <strong>{summary.succeeded}</strong>{" "}
+        sliced successfully &nbsp;·&nbsp; <strong>{summary.feasible}</strong> feasible &nbsp;·&nbsp;{" "}
+        <strong>{summary.pareto_optimal}</strong> Pareto optimal
+      </p>
     </section>
   );
 }
 
-function Metrics({ candidate }: { candidate: Candidate }) {
-  if (candidate.status !== "succeeded") return null;
+function CandidateSpec({ candidate }: { candidate: Candidate }) {
   return (
-    <section className="result-card">
-      <h2>Real PrusaSlicer results</h2>
-      <dl className="spec-grid">
-        <dt>Estimated print time</dt>
-        <dd className="metric-value">
-          {candidate.print_time_seconds !== null ? formatDuration(candidate.print_time_seconds) : "unavailable"}
-        </dd>
-        <dt>Filament</dt>
-        <dd className="metric-value">
-          {candidate.filament_grams !== null ? formatGrams(candidate.filament_grams) : "unavailable"}
-        </dd>
-      </dl>
-    </section>
+    <dl className="spec-grid">
+      <dt>Layer height</dt>
+      <dd>{candidate.layer_height.toFixed(2)} mm</dd>
+      <dt>Infill</dt>
+      <dd>{candidate.infill_percent}%</dd>
+      <dt>Supports</dt>
+      <dd>{candidate.supports_enabled ? "On" : "Off"}</dd>
+      <dt>Perimeters</dt>
+      <dd>{candidate.perimeter_count}</dd>
+      <dt>Orientation</dt>
+      <dd>
+        {candidate.orientation_x}° / {candidate.orientation_y}° / {candidate.orientation_z}°
+      </dd>
+    </dl>
   );
 }
 
@@ -61,34 +56,152 @@ function RequirementRow({ check }: { check: ConstraintCheck }) {
   );
 }
 
-function Requirements({ candidate }: { candidate: Candidate }) {
-  if (candidate.constraint_checks.length === 0) return null;
+/** The winning candidate, shown prominently and labeled SELECTED. */
+function SelectedCandidateCard({ run, candidate }: { run: RunDetail; candidate: Candidate }) {
+  return (
+    <section className="result-card result-card-selected">
+      <span className="selected-badge">SELECTED</span>
+      <h2>{candidateLabel(run, candidate)}</h2>
+      <CandidateSpec candidate={candidate} />
+
+      <dl className="spec-grid metrics-grid">
+        <dt>Print time</dt>
+        <dd className="metric-value">
+          {candidate.print_time_seconds !== null ? formatDuration(candidate.print_time_seconds) : "unavailable"}
+        </dd>
+        <dt>Material</dt>
+        <dd className="metric-value">
+          {candidate.filament_grams !== null ? formatGrams(candidate.filament_grams) : "unavailable"}
+        </dd>
+      </dl>
+
+      {candidate.constraint_checks.length > 0 && (
+        <ul className="requirement-list">
+          {candidate.constraint_checks.map((check) => (
+            <RequirementRow key={check.key} check={check} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** No candidate was selected — explains why (infeasible / tradeoff / technical failure). */
+function NoWinnerCard({ run, decision }: { run: RunDetail; decision: Decision | undefined }) {
+  if (run.status === "failed") {
+    const firstFailure = run.candidates.find((c) => c.failure_reason)?.failure_reason;
+    return (
+      <section className="result-card result-card-error">
+        <h2>Slicing did not complete</h2>
+        <p>{firstFailure ?? decision?.outcome ?? "Slicing failed for an unknown reason."}</p>
+      </section>
+    );
+  }
+
+  if (run.status === "infeasible") {
+    return (
+      <section className="result-card result-card-error">
+        <h2>No feasible candidate found</h2>
+        <p>
+          {run.optimization_summary.candidates_tested} configurations were tested and none satisfied your hard
+          constraints. Try relaxing the max print time or max material limits.
+        </p>
+      </section>
+    );
+  }
+
+  if (run.status === "needs_human_input") {
+    return (
+      <section className="result-card result-card-pending">
+        <h2>Multiple equally good options</h2>
+        <p>
+          {decision?.outcome ??
+            "Several feasible candidates are mutually non-dominated and no optimization priority resolves the tradeoff."}
+        </p>
+      </section>
+    );
+  }
+
+  return null;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  succeeded: "✓",
+  failed: "✕ slicing failed",
+  pending: "…",
+  slicing: "…",
+};
+
+function ComparisonTable({ run }: { run: RunDetail }) {
   return (
     <section className="result-card">
-      <h2>Requirements</h2>
-      <ul className="requirement-list">
-        {candidate.constraint_checks.map((check) => (
-          <RequirementRow key={check.key} check={check} />
-        ))}
-      </ul>
+      <h2>Candidates tested</h2>
+      <div className="comparison-scroll">
+        <table className="comparison-table">
+          <thead>
+            <tr>
+              <th>Candidate</th>
+              <th>Layer / Infill / Walls</th>
+              <th>Time</th>
+              <th>Material</th>
+              <th>Feasible</th>
+              <th>Pareto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {run.candidates.map((candidate, i) => (
+              <tr key={candidate.id} className={candidate.is_selected ? "comparison-row-selected" : ""}>
+                <td>
+                  #{i + 1}
+                  {candidate.is_selected && <span className="row-selected-tag">SELECTED</span>}
+                </td>
+                <td>
+                  {candidate.layer_height.toFixed(2)}mm / {candidate.infill_percent}% / {candidate.perimeter_count}
+                </td>
+                <td>
+                  {candidate.status === "succeeded" && candidate.print_time_seconds !== null
+                    ? formatDuration(candidate.print_time_seconds)
+                    : STATUS_LABELS[candidate.status]}
+                </td>
+                <td>
+                  {candidate.status === "succeeded" && candidate.filament_grams !== null
+                    ? formatGrams(candidate.filament_grams)
+                    : "—"}
+                </td>
+                <td className={candidate.is_feasible ? "cell-pass" : "cell-fail"}>
+                  {candidate.status === "succeeded" ? (candidate.is_feasible ? "✓" : "✕") : "—"}
+                </td>
+                <td>{candidate.is_pareto_optimal ? "✓" : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
 
 const DECISION_LABELS: Record<string, string> = {
+  select_candidate: "CANDIDATE SELECTED",
+  no_feasible_candidate: "NO FEASIBLE CANDIDATE",
+  escalate_tradeoff: "TRADEOFF — INPUT NEEDED",
+  abort_run: "RUN ABORTED",
+  // Retained for older records created before this milestone.
   accept_candidate: "ACCEPT CANDIDATE",
   reject_candidate: "REJECT CANDIDATE",
-  abort_run: "RUN ABORTED",
 };
+
+const POSITIVE_ACTIONS = new Set(["select_candidate", "accept_candidate"]);
 
 function DecisionCard({ decision }: { decision: Decision }) {
   const label = DECISION_LABELS[decision.selected_action] ?? decision.selected_action.toUpperCase();
-  const tone = decision.selected_action === "accept_candidate" ? "decision-accept" : "decision-reject";
+  const tone = POSITIVE_ACTIONS.has(decision.selected_action) ? "decision-accept" : "decision-reject";
 
   return (
     <section className="result-card">
       <h2>Decision</h2>
       <p className={`decision-label ${tone}`}>{label}</p>
+      <p className="decision-observation">{decision.observation}</p>
       {decision.outcome && <p className="decision-outcome">{decision.outcome}</p>}
 
       {decision.evidence.length > 0 && (
@@ -102,48 +215,39 @@ function DecisionCard({ decision }: { decision: Decision }) {
         </>
       )}
 
+      {decision.alternatives.length > 0 && (
+        <>
+          <p className="decision-evidence-heading">Other Pareto-optimal alternatives considered</p>
+          <ul className="evidence-list">
+            {decision.alternatives.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <p className="decision-human">Human input required: {decision.requires_human ? "Yes" : "No"}</p>
     </section>
   );
 }
 
-/** run.status === "failed" — a technical slicing/infrastructure failure,
- * distinct from a candidate being rejected for violating constraints. */
-function FailureCard({ candidate, decision }: { candidate: Candidate; decision: Decision | undefined }) {
-  return (
-    <section className="result-card result-card-error">
-      <h2>Slicing did not complete</h2>
-      <p>{candidate.failure_reason ?? decision?.outcome ?? "Slicing failed for an unknown reason."}</p>
-    </section>
-  );
-}
-
 export function RunResult({ run }: { run: RunDetail }) {
-  const candidate = run.candidates[0];
   const decision = run.decisions[0];
+  const winner = run.candidates.find((c) => c.is_selected);
 
-  if (!candidate) {
+  if (run.candidates.length === 0) {
     return (
       <section className="result-card">
-        <p>Run finished with status "{run.status}" but no candidate was recorded.</p>
+        <p>Run finished with status "{run.status}" but no candidates were recorded.</p>
       </section>
-    );
-  }
-
-  if (run.status === "failed") {
-    return (
-      <div className="results">
-        <CandidateSpec candidate={candidate} />
-        <FailureCard candidate={candidate} decision={decision} />
-      </div>
     );
   }
 
   return (
     <div className="results">
-      <CandidateSpec candidate={candidate} />
-      <Metrics candidate={candidate} />
-      <Requirements candidate={candidate} />
+      <SummaryCard summary={run.optimization_summary} />
+      {winner ? <SelectedCandidateCard run={run} candidate={winner} /> : <NoWinnerCard run={run} decision={decision} />}
+      <ComparisonTable run={run} />
       {decision && <DecisionCard decision={decision} />}
     </div>
   );

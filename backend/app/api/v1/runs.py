@@ -1,12 +1,13 @@
-"""/api/v1/runs — create an optimization run and slice one default candidate.
+"""/api/v1/runs — create an optimization run and evaluate a candidate set.
 
 `POST /api/v1/runs` accepts a real STL upload plus goal metadata, wires it
-through the full single-candidate pipeline synchronously (see
-app/services/orchestrator.py), and returns the run together with the
-candidate that was tried and the decision record produced. This is
-deliberately synchronous and single-candidate for this milestone — no
-background jobs, no multi-candidate search, no Gemini/ADK. See
-docs/architecture.md for what replaces this once the agent loop exists.
+through the full multi-candidate optimization pipeline synchronously (see
+app/services/orchestrator.py), and returns the run together with every
+candidate tried, its real metrics, feasibility, Pareto-optimality, the
+selected winner, and the decision record produced. This is deliberately
+synchronous and single-round for this milestone — no background jobs, no
+adaptive second round, no Gemini/ADK. See docs/architecture.md for what
+replaces this once the agent loop exists.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from app.models.api import (
     CandidateResponse,
     ConstraintCheckResponse,
     DecisionResponse,
+    OptimizationSummaryResponse,
     RunDetailResponse,
     RunListResponse,
     RunResponse,
@@ -29,7 +31,7 @@ from app.models.candidate import CandidateConfiguration
 from app.models.decision import DecisionRecord
 from app.models.run import HardConstraints, OptimizationObjective, OptimizationPreferences, OptimizationRun
 from app.optimization.constraints import evaluate_constraint_checks
-from app.services.orchestrator import execute_single_candidate_run
+from app.services.orchestrator import execute_optimization_run
 from app.services.repository import RunRepository, RunRepositoryError
 from app.services.storage import StorageService
 from app.services.stl_validation import validate_stl
@@ -41,8 +43,11 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 def _to_candidate_response(candidate: CandidateConfiguration, constraints: HardConstraints) -> CandidateResponse:
     checks = evaluate_constraint_checks(candidate, constraints)
     return CandidateResponse(
-        **candidate.model_dump(),
+        **candidate.model_dump(exclude={"is_pareto_optimal", "is_selected"}),
         constraint_checks=[ConstraintCheckResponse(**vars(c)) for c in checks],
+        is_feasible=bool(checks) and all(c.passed for c in checks),
+        is_pareto_optimal=candidate.is_pareto_optimal,
+        is_selected=candidate.is_selected,
     )
 
 
@@ -51,10 +56,17 @@ def _to_detail_response(
     candidates: list[CandidateConfiguration],
     decisions: list[DecisionRecord],
 ) -> RunDetailResponse:
+    candidate_responses = [_to_candidate_response(c, run.hard_constraints) for c in candidates]
     return RunDetailResponse(
         **run.model_dump(),
-        candidates=[_to_candidate_response(c, run.hard_constraints) for c in candidates],
+        candidates=candidate_responses,
         decisions=[DecisionResponse(**d.model_dump()) for d in decisions],
+        optimization_summary=OptimizationSummaryResponse(
+            candidates_tested=len(candidate_responses),
+            succeeded=sum(1 for c in candidate_responses if c.status.value == "succeeded"),
+            feasible=sum(1 for c in candidate_responses if c.is_feasible),
+            pareto_optimal=sum(1 for c in candidate_responses if c.is_pareto_optimal),
+        ),
     )
 
 
@@ -70,11 +82,10 @@ async def create_run(
     storage: StorageService = Depends(get_storage_service),
     slicer: SlicerService = Depends(get_slicer_service),
 ) -> RunDetailResponse:
-    """Create a run, save the STL, slice one default candidate, and return
-    the full result. This can take a while (real PrusaSlicer execution, up
-    to STRATA_PRUSASLICER_TIMEOUT_SECONDS) — expected to move to a
-    background job before this is used for anything beyond a single
-    candidate.
+    """Create a run, save the STL, slice a deterministic candidate set, and
+    return the full result. This can take a while (several real PrusaSlicer
+    invocations, each up to STRATA_PRUSASLICER_TIMEOUT_SECONDS) — expected
+    to move to a background job before this grows further.
     """
     content = await file.read()
     errors = validate_stl(file.filename or "", content)
@@ -98,7 +109,7 @@ async def create_run(
     repository.update_run(run)
 
     stl_path = storage.get_artifact_path(reference)
-    execute_single_candidate_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
+    execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
 
     candidates = repository.list_candidates(run.id)
     decisions = repository.list_decisions(run.id)
