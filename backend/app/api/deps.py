@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from fastapi import Request
 
+from app.agent.interfaces import AgentPlanner
 from app.services.repository import RunRepository
 from app.services.storage import StorageService
 from app.slicer.base import SlicerService
@@ -25,3 +26,7 @@ def get_storage_service(request: Request) -> StorageService:
 
 def get_slicer_service(request: Request) -> SlicerService:
     return request.app.state.slicer_service
+
+
+def get_agent_planner(request: Request) -> AgentPlanner:
+    return request.app.state.agent_planner

@@ -55,7 +55,10 @@ class Settings(BaseSettings):
     prusaslicer_binary_path: str = "prusa-slicer"
     prusaslicer_timeout_seconds: int = 300
 
-    # --- Gemini / ADK (reserved; no calls are made in this pass) ---
+    # --- Agent planner: "deterministic" (default, offline, free) or
+    # "gemini" (real Gemini + Google ADK call). Automated tests always use
+    # deterministic mode unless explicitly testing the Gemini planner.
+    planner_mode: str = "deterministic"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.5-flash"
 

@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agent.factory import build_planner
 from app.api.v1.health import router as health_router
 from app.api.v1.router import api_v1_router
 from app.core.config import get_settings
@@ -46,10 +47,19 @@ async def lifespan(app: FastAPI):
         binary_path=settings.prusaslicer_binary_path,
         timeout_seconds=settings.prusaslicer_timeout_seconds,
     )
+    # Fails fast/loud here (not on first request) if planner_mode=gemini
+    # and no API key is configured — see app/agent/factory.py.
+    app.state.agent_planner = build_planner(settings)
 
     logger.info(
         "strata backend starting",
-        extra={"context": {"environment": settings.environment, "storage_backend": settings.storage_backend}},
+        extra={
+            "context": {
+                "environment": settings.environment,
+                "storage_backend": settings.storage_backend,
+                "planner_mode": settings.planner_mode,
+            }
+        },
     )
     yield
     logger.info("strata backend shutting down")

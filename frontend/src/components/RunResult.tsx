@@ -56,6 +56,27 @@ function RequirementRow({ check }: { check: ConstraintCheck }) {
   );
 }
 
+/** What the planner (deterministic or Gemini+ADK) proposed, before any
+ * slicing happened — see DecisionRecord.selected_action="plan_initial_candidates". */
+function PlanCard({ decision }: { decision: Decision }) {
+  // planning_summary is always the first evidence line (see
+  // app/services/orchestrator.py::_planning_decision) — displayed as-is,
+  // never re-derived or parsed on the frontend.
+  const strategy = decision.evidence[0];
+  return (
+    <section className="result-card">
+      <h2>Experiment plan</h2>
+      <p className="decision-observation">{decision.observation}</p>
+      {strategy && (
+        <>
+          <p className="decision-evidence-heading">Strategy</p>
+          <p className="decision-outcome">{strategy}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
 /** The winning candidate, shown prominently and labeled SELECTED. */
 function SelectedCandidateCard({ run, candidate }: { run: RunDetail; candidate: Candidate }) {
   return (
@@ -232,23 +253,41 @@ function DecisionCard({ decision }: { decision: Decision }) {
 }
 
 export function RunResult({ run }: { run: RunDetail }) {
-  const decision = run.decisions[0];
+  // Two decisions are recorded per run: the planning decision (always
+  // selected_action="plan_initial_candidates", written before any slicing)
+  // and the final one (select_candidate / no_feasible_candidate /
+  // escalate_tradeoff / abort_run). Found by content, not array position,
+  // so this doesn't depend on save order.
+  const planDecision = run.decisions.find((d) => d.selected_action === "plan_initial_candidates");
+  const finalDecision = run.decisions.find((d) => d.selected_action !== "plan_initial_candidates");
   const winner = run.candidates.find((c) => c.is_selected);
 
   if (run.candidates.length === 0) {
+    // Planning itself failed (e.g. Gemini call errored) — no candidates
+    // ever existed to slice. See _finish_run_planning_failed in the backend.
     return (
-      <section className="result-card">
-        <p>Run finished with status "{run.status}" but no candidates were recorded.</p>
-      </section>
+      <div className="results">
+        <section className="result-card result-card-error">
+          <h2>Planning failed</h2>
+          <p>
+            {finalDecision?.outcome ?? `Run finished with status "${run.status}" but no candidates were recorded.`}
+          </p>
+        </section>
+      </div>
     );
   }
 
   return (
     <div className="results">
+      {planDecision && <PlanCard decision={planDecision} />}
       <SummaryCard summary={run.optimization_summary} />
-      {winner ? <SelectedCandidateCard run={run} candidate={winner} /> : <NoWinnerCard run={run} decision={decision} />}
+      {winner ? (
+        <SelectedCandidateCard run={run} candidate={winner} />
+      ) : (
+        <NoWinnerCard run={run} decision={finalDecision} />
+      )}
       <ComparisonTable run={run} />
-      {decision && <DecisionCard decision={decision} />}
+      {finalDecision && <DecisionCard decision={finalDecision} />}
     </div>
   );
 }

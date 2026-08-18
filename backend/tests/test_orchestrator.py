@@ -4,13 +4,15 @@ from pathlib import Path
 
 import pytest
 
+from app.agent.deterministic_planner import DeterministicPlanner
+from app.agent.interfaces import PlannerError
 from app.models.candidate import CandidateConfiguration, CandidateStatus
 from app.models.run import HardConstraints, OptimizationObjective, OptimizationPreferences, OptimizationRun, RunStatus
 from app.models.slicer import SliceResult
 from app.services.orchestrator import execute_optimization_run
 from app.services.repository import InMemoryRunRepository
 from app.services.storage import LocalStorageService
-from tests.fakes import FakeSlicerService
+from tests.fakes import FakePlanner, FakeSlicerService
 
 
 def _make_run(**overrides) -> OptimizationRun:
@@ -312,14 +314,76 @@ def test_all_candidates_failing_to_slice_fails_the_run_without_crashing(tmp_path
 # --- default candidate set ----------------------------------------------
 
 
-def test_defaults_to_generate_candidate_set_when_none_provided(tmp_path: Path) -> None:
+def test_uses_deterministic_planner_when_no_candidates_override_given(tmp_path: Path) -> None:
     repository, storage, stl_path = _setup(tmp_path)
     run = _make_run()
     repository.create_run(run)
 
     slicer = FakeSlicerService(result=SliceResult(success=True, print_time_seconds=100, filament_grams=1.0))
 
-    result = execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=DeterministicPlanner()
+    )
 
     assert len(result.candidates) >= 6  # spec: ~6-8 candidates
     assert len(slicer.calls) == len(result.candidates)
+
+    decisions = repository.list_decisions(run.id)
+    plan_decision = next(d for d in decisions if d.selected_action == "plan_initial_candidates")
+    assert "deterministic" in plan_decision.observation
+
+
+# --- planner integration (proves the orchestrator uses the AgentPlanner
+# abstraction, not the fixed generator directly) ----------------------
+
+
+def test_orchestrator_uses_injected_planner_not_the_fixed_generator(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    fake_candidates = [_candidate(run.id, layer_height=h) for h in (0.11, 0.12, 0.13)]
+    planner = FakePlanner(candidates=fake_candidates, planning_summary="fake strategy", planner_name="fake-v1")
+    slicer = FakeSlicerService(result=SliceResult(success=True, print_time_seconds=500, filament_grams=2.0))
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner, candidate_count=3
+    )
+
+    assert planner.calls == [(run.id, 3)]
+    assert len(result.candidates) == 3
+    assert {c.layer_height for c in result.candidates} == {0.11, 0.12, 0.13}
+
+    decisions = repository.list_decisions(run.id)
+    plan_decision = next(d for d in decisions if d.selected_action == "plan_initial_candidates")
+    assert "fake-v1" in plan_decision.observation
+    assert "fake strategy" in plan_decision.evidence
+
+
+def test_planner_failure_aborts_run_before_any_slicing(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    planner = FakePlanner(raise_error=PlannerError("Gemini planner call failed: connection refused"))
+    slicer = FakeSlicerService(result=SliceResult(success=True, print_time_seconds=100, filament_grams=1.0))
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner
+    )
+
+    assert result.candidates == []
+    assert result.run.status == RunStatus.FAILED
+    assert result.decision.selected_action == "abort_run"
+    assert "connection refused" in result.decision.outcome
+    assert len(slicer.calls) == 0  # never reached the slicer
+
+
+def test_execute_optimization_run_requires_candidates_or_planner(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+    slicer = FakeSlicerService(result=SliceResult(success=True))
+
+    with pytest.raises(ValueError):
+        execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)

@@ -1,7 +1,8 @@
-"""Deterministic multi-candidate optimization pipeline.
+"""Multi-candidate optimization pipeline: planner-proposed candidates,
+sliced for real, evaluated deterministically.
 
-    STL -> StorageService
-        -> generate_candidate_set() [app/agent/default_candidate.py]
+    Planner (Deterministic or Gemini+ADK) [app/agent/*]
+        -> 6-8 CandidateConfigurations (validated; see planner_validation.py)
         -> PrusaSlicerService, once per candidate, sequentially
         -> parse real metrics per candidate
         -> constraint evaluation per candidate (app/optimization/constraints.py)
@@ -9,14 +10,13 @@
         -> preference-based winner selection (app/optimization/selection.py)
         -> one DecisionRecord summarizing the whole cohort
 
-This is a deliberately narrow stand-in for the future agent loop described
-in `app/agent/interfaces.py`: a small FIXED candidate set, no adaptive
-second round, no LLM calls anywhere. When `AgentPlanner` is implemented, it
-replaces `generate_candidate_set()` with an iterating, previous-result-aware
-`propose_candidates()`; everything downstream of "here are some candidates
-with real metrics" (constraint checking, Pareto, selection, decision
-record) carries over unchanged — those stay deterministic on purpose (see
-docs/architecture.md).
+Which planner runs is an injected `AgentPlanner` (see app/agent/factory.py
+and STRATA_PLANNER_MODE) — this module doesn't know or care whether
+candidates came from the fixed deterministic set or a real Gemini call; it
+only knows how to turn a validated candidate list into measured, evaluated,
+decided-upon results. That's deliberate: no LLM involvement anywhere below
+"here are some candidates" (constraint checking, Pareto, selection,
+decision record) — see docs/architecture.md's validation boundary.
 
 Every number in the resulting `CandidateConfiguration`/`DecisionRecord`
 comes from an actual `SliceResult` — this module never invents a print time
@@ -30,7 +30,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.agent.default_candidate import generate_candidate_set
+from app.agent.interfaces import AgentPlanner, PlannerError, PlannerResult
 from app.core.logging import get_logger
 from app.models.candidate import CandidateConfiguration, CandidateStatus
 from app.models.decision import DecisionRecord
@@ -43,6 +43,8 @@ from app.services.storage import StorageService
 from app.slicer.base import SlicerService, SlicerUnavailableError
 
 logger = get_logger(__name__)
+
+DEFAULT_CANDIDATE_COUNT = 8
 
 
 @dataclass(frozen=True)
@@ -59,30 +61,45 @@ def execute_optimization_run(
     repository: RunRepository,
     storage: StorageService,
     slicer: SlicerService,
+    planner: AgentPlanner | None = None,
+    candidate_count: int = DEFAULT_CANDIDATE_COUNT,
     candidates: list[CandidateConfiguration] | None = None,
 ) -> OptimizationRunResult:
-    """Slice a small deterministic candidate set and select a winner.
+    """Plan, slice, and evaluate a round of candidates, and select a winner.
 
     Mutates and persists `run` (status transitions PENDING -> RUNNING ->
     one of COMPLETED / INFEASIBLE / NEEDS_HUMAN_INPUT / FAILED) and every
     candidate via `repository`, independently, as each result becomes known
     — a caller re-reading the repository mid-run sees real partial progress.
 
-    `candidates` defaults to `generate_candidate_set(run.id)`; tests may
-    override it with a smaller/fixed list.
+    Pass `candidates` to bypass planning entirely (tests use this with a
+    fixed list). Otherwise `planner` is required and is asked for
+    `candidate_count` candidates via `plan_initial_candidates`; the planner's
+    choice is recorded as its own DecisionRecord before slicing starts.
 
     Never raises for expected failure modes — those are captured in
     candidates/decision and returned normally so the API layer never has to
     turn them into a 500. One candidate failing to slice does not abort the
-    run; only a run-level fatal condition does (no slicer available, or
-    every candidate failed to slice).
+    run; only a run-level fatal condition does (no slicer available, every
+    candidate failed to slice, or planning itself failed).
     """
-    candidates = candidates if candidates is not None else generate_candidate_set(run.id)
-    for candidate in candidates:
-        repository.save_candidate(candidate)
-
     run.status = RunStatus.RUNNING
     repository.update_run(run)
+
+    if candidates is None:
+        if planner is None:
+            raise ValueError("execute_optimization_run requires either `candidates` or `planner`.")
+        try:
+            planner_result = planner.plan_initial_candidates(run, candidate_count)
+        except PlannerError as exc:
+            logger.warning("planning failed", extra={"context": {"run_id": run.id, "error": str(exc)}})
+            return _finish_run_planning_failed(run, repository, message=str(exc))
+
+        repository.save_decision(_planning_decision(run, planner_result))
+        candidates = planner_result.candidates
+
+    for candidate in candidates:
+        repository.save_candidate(candidate)
 
     for candidate in candidates:
         try:
@@ -167,6 +184,56 @@ def _describe(candidate: CandidateConfiguration) -> str:
         f"layer {candidate.layer_height}mm / infill {candidate.infill_percent}% / "
         f"{candidate.perimeter_count} perimeters"
     )
+
+
+def _planning_decision(run: OptimizationRun, planner_result: PlannerResult) -> DecisionRecord:
+    """Audit entry for what the planner proposed, recorded before any
+    slicing happens. Never contains raw model chain-of-thought — only the
+    planner's own concise `planning_summary` plus a note about anything
+    deterministic validation rejected."""
+    evidence = [planner_result.planning_summary] if planner_result.planning_summary else []
+    if planner_result.rejected_proposals:
+        evidence.append(
+            f"{len(planner_result.rejected_proposals)} proposed candidate(s) were rejected by "
+            "deterministic validation: " + "; ".join(planner_result.rejected_proposals)
+        )
+
+    return DecisionRecord(
+        run_id=run.id,
+        observation=(
+            f"Planner '{planner_result.planner_name}' proposed "
+            f"{len(planner_result.candidates)} candidate(s) for the first experiment round."
+        ),
+        alternatives=[],
+        evidence=evidence,
+        selected_action="plan_initial_candidates",
+        outcome=planner_result.planning_summary or None,
+        requires_human=False,
+    )
+
+
+def _finish_run_planning_failed(
+    run: OptimizationRun,
+    repository: RunRepository,
+    *,
+    message: str,
+) -> OptimizationRunResult:
+    """The planner itself failed (e.g. Gemini call errored) — no candidates
+    were ever proposed, so there is nothing to slice."""
+    decision = DecisionRecord(
+        run_id=run.id,
+        observation="Candidate planning failed before any slicing was attempted.",
+        alternatives=[],
+        evidence=[message],
+        selected_action="abort_run",
+        outcome=message,
+        requires_human=False,
+    )
+    repository.save_decision(decision)
+
+    run.status = RunStatus.FAILED
+    repository.update_run(run)
+    return OptimizationRunResult(run=run, candidates=[], decision=decision)
 
 
 def _finish_run_aborted(

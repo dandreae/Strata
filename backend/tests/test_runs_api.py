@@ -41,6 +41,14 @@ def _varied_results(grams: list[float], times: list[int]) -> list[SliceResult]:
     ]
 
 
+def _plan_decision(body: dict) -> dict:
+    return next(d for d in body["decisions"] if d["selected_action"] == "plan_initial_candidates")
+
+
+def _final_decision(body: dict) -> dict:
+    return next(d for d in body["decisions"] if d["selected_action"] != "plan_initial_candidates")
+
+
 def test_create_run_slices_candidate_set_and_selects_winner(client: TestClient) -> None:
     grams = [61.43, 55.0, 50.0, 70.0, 45.0, 79.9, 75.0, 62.0]
     times = [8700, 8000, 7500, 9000, 8200, 7000, 6800, 7200]
@@ -70,8 +78,12 @@ def test_create_run_slices_candidate_set_and_selects_winner(client: TestClient) 
     assert selected[0]["is_pareto_optimal"] is True
     assert selected[0]["is_feasible"] is True
 
-    assert len(body["decisions"]) == 1
-    decision = body["decisions"][0]
+    assert len(body["decisions"]) == 2
+    plan = _plan_decision(body)
+    assert "deterministic" in plan["observation"]
+    assert plan["requires_human"] is False
+
+    decision = _final_decision(body)
     assert decision["selected_action"] == "select_candidate"
     assert decision["requires_human"] is False
     assert "45.0g" in " ".join(decision["evidence"])
@@ -97,7 +109,7 @@ def test_create_run_reports_infeasible_when_no_candidate_satisfies_constraints(c
     assert body["optimization_summary"]["pareto_optimal"] == 0
     assert not any(c["is_selected"] for c in body["candidates"])
 
-    decision = body["decisions"][0]
+    decision = _final_decision(body)
     assert decision["selected_action"] == "no_feasible_candidate"
     assert decision["requires_human"] is False
 
@@ -119,7 +131,7 @@ def test_create_run_handles_slicer_unavailable_without_500(client: TestClient) -
     body = response.json()
     assert body["status"] == "failed"
     assert all(c["status"] == "failed" for c in body["candidates"])
-    assert body["decisions"][0]["selected_action"] == "abort_run"
+    assert _final_decision(body)["selected_action"] == "abort_run"
 
 
 def test_create_run_rejects_non_stl_file(client: TestClient) -> None:
@@ -164,7 +176,7 @@ def test_get_run_roundtrips_with_candidates_and_decisions(client: TestClient) ->
     body = response.json()
     assert body["id"] == created["id"]
     assert len(body["candidates"]) == NUM_CANDIDATES
-    assert len(body["decisions"]) == 1
+    assert len(body["decisions"]) == 2
     assert body["optimization_summary"]["candidates_tested"] == NUM_CANDIDATES
 
 

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.agent.interfaces import AgentPlanner, PlannerError, PlannerResult
 from app.models.candidate import CandidateConfiguration
+from app.models.run import OptimizationRun
 from app.models.slicer import SliceResult
 from app.slicer.base import SlicerService, SlicerUnavailableError
 
@@ -48,3 +50,35 @@ class FakeSlicerService(SlicerService):
             return self._results[index]
         assert self._result is not None
         return self._result
+
+
+class FakePlanner(AgentPlanner):
+    """Returns a pre-programmed PlannerResult (or raises PlannerError),
+    never touches Gemini/ADK. Used to prove the orchestrator calls the
+    planner abstraction rather than the fixed generator directly."""
+
+    def __init__(
+        self,
+        candidates: list[CandidateConfiguration] | None = None,
+        planning_summary: str = "fake planning summary",
+        planner_name: str = "fake",
+        raise_error: PlannerError | None = None,
+    ) -> None:
+        self._candidates = candidates or []
+        self._planning_summary = planning_summary
+        self._planner_name = planner_name
+        self._raise_error = raise_error
+        self.calls: list[tuple[str, int]] = []
+
+    def plan_initial_candidates(self, run: OptimizationRun, candidate_count: int) -> PlannerResult:
+        self.calls.append((run.id, candidate_count))
+        if self._raise_error is not None:
+            raise self._raise_error
+        return PlannerResult(
+            candidates=self._candidates,
+            planning_summary=self._planning_summary,
+            planner_name=self._planner_name,
+        )
+
+    def should_continue_searching(self, run: OptimizationRun, results_so_far: list[CandidateConfiguration]) -> bool:
+        return False

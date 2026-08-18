@@ -10,6 +10,12 @@ dependencies = [
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.3,<3.0",
     "python-multipart>=0.0.9",
+    # Official Google agent stack for GeminiAgentPlanner (app/agent/gemini_planner.py).
+    # Only ever called when STRATA_PLANNER_MODE=gemini; deterministic mode
+    # (the default, and all of `pytest -q`) never imports google.genai types
+    # at runtime beyond this being importable.
+    "google-adk>=2.0,<3.0",
+    "google-genai>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]
@@ -31,4 +37,5 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: exercises a real external binary (e.g. PrusaSlicer); auto-skipped when unavailable.",
+    "gemini_smoke: makes a real, billable Gemini API call; auto-skipped when no API key is configured.",
 ]

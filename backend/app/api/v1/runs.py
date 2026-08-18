@@ -4,10 +4,11 @@
 through the full multi-candidate optimization pipeline synchronously (see
 app/services/orchestrator.py), and returns the run together with every
 candidate tried, its real metrics, feasibility, Pareto-optimality, the
-selected winner, and the decision record produced. This is deliberately
-synchronous and single-round for this milestone — no background jobs, no
-adaptive second round, no Gemini/ADK. See docs/architecture.md for what
-replaces this once the agent loop exists.
+selected winner, and the decision record produced — including the planning
+decision (which planner, how many candidates, why) recorded before slicing.
+This is deliberately synchronous and single-round for this milestone — no
+background jobs, no adaptive second round. See docs/architecture.md for
+what replaces this once the adaptive agent loop exists.
 """
 
 from __future__ import annotations
@@ -16,7 +17,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
-from app.api.deps import get_run_repository, get_slicer_service, get_storage_service
+from app.agent.interfaces import AgentPlanner
+from app.api.deps import get_agent_planner, get_run_repository, get_slicer_service, get_storage_service
 from app.core.errors import NotFoundError, ValidationFailedError
 from app.models.api import (
     CandidateResponse,
@@ -81,11 +83,13 @@ async def create_run(
     repository: RunRepository = Depends(get_run_repository),
     storage: StorageService = Depends(get_storage_service),
     slicer: SlicerService = Depends(get_slicer_service),
+    planner: AgentPlanner = Depends(get_agent_planner),
 ) -> RunDetailResponse:
-    """Create a run, save the STL, slice a deterministic candidate set, and
-    return the full result. This can take a while (several real PrusaSlicer
-    invocations, each up to STRATA_PRUSASLICER_TIMEOUT_SECONDS) — expected
-    to move to a background job before this grows further.
+    """Create a run, save the STL, plan a candidate set (see
+    STRATA_PLANNER_MODE — deterministic or Gemini+ADK), slice it, and return
+    the full result. This can take a while (planning plus several real
+    PrusaSlicer invocations, each up to STRATA_PRUSASLICER_TIMEOUT_SECONDS)
+    — expected to move to a background job before this grows further.
     """
     content = await file.read()
     errors = validate_stl(file.filename or "", content)
@@ -109,7 +113,7 @@ async def create_run(
     repository.update_run(run)
 
     stl_path = storage.get_artifact_path(reference)
-    execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
+    execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner)
 
     candidates = repository.list_candidates(run.id)
     decisions = repository.list_decisions(run.id)
