@@ -41,12 +41,19 @@ def _varied_results(grams: list[float], times: list[int]) -> list[SliceResult]:
     ]
 
 
+_TERMINAL_ACTIONS = {"select_candidate", "no_feasible_candidate", "escalate_tradeoff", "abort_run"}
+
+
 def _plan_decision(body: dict) -> dict:
     return next(d for d in body["decisions"] if d["selected_action"] == "plan_initial_candidates")
 
 
+def _round_two_decision(body: dict) -> dict:
+    return next(d for d in body["decisions"] if d["selected_action"] in ("stop_optimization", "continue_optimization"))
+
+
 def _final_decision(body: dict) -> dict:
-    return next(d for d in body["decisions"] if d["selected_action"] != "plan_initial_candidates")
+    return next(d for d in body["decisions"] if d["selected_action"] in _TERMINAL_ACTIONS)
 
 
 def test_create_run_slices_candidate_set_and_selects_winner(client: TestClient) -> None:
@@ -71,6 +78,8 @@ def test_create_run_slices_candidate_set_and_selects_winner(client: TestClient) 
     assert body["optimization_summary"]["succeeded"] == NUM_CANDIDATES
     assert body["optimization_summary"]["feasible"] == NUM_CANDIDATES  # all within 10800s/80g
     assert body["optimization_summary"]["pareto_optimal"] >= 1
+    # Deterministic mode never adapts, so every candidate is Round 1.
+    assert all(c["round"] == 1 for c in body["candidates"])
 
     selected = [c for c in body["candidates"] if c["is_selected"]]
     assert len(selected) == 1
@@ -78,10 +87,15 @@ def test_create_run_slices_candidate_set_and_selects_winner(client: TestClient) 
     assert selected[0]["is_pareto_optimal"] is True
     assert selected[0]["is_feasible"] is True
 
-    assert len(body["decisions"]) == 2
+    # 3 decisions: Round 1 plan, Round 2 stop (deterministic never adapts), final selection.
+    assert len(body["decisions"]) == 3
     plan = _plan_decision(body)
     assert "deterministic" in plan["observation"]
     assert plan["requires_human"] is False
+
+    round_two = _round_two_decision(body)
+    assert round_two["selected_action"] == "stop_optimization"
+    assert round_two["requires_human"] is False
 
     decision = _final_decision(body)
     assert decision["selected_action"] == "select_candidate"
@@ -176,7 +190,7 @@ def test_get_run_roundtrips_with_candidates_and_decisions(client: TestClient) ->
     body = response.json()
     assert body["id"] == created["id"]
     assert len(body["candidates"]) == NUM_CANDIDATES
-    assert len(body["decisions"]) == 2
+    assert len(body["decisions"]) == 3
     assert body["optimization_summary"]["candidates_tested"] == NUM_CANDIDATES
 
 

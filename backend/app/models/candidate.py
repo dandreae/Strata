@@ -50,3 +50,8 @@ class CandidateConfiguration(BaseModel):
     is_selected: bool = Field(
         default=False, description="True if this is the candidate the run's DecisionRecord selected."
     )
+
+    # Which experiment round proposed this candidate (1 or 2 — see
+    # app/services/orchestrator.py's bounded adaptive loop). Always 1 for
+    # DeterministicPlanner, which never runs a second round.
+    round: int = Field(default=1, ge=1, le=2, description="Experiment round this candidate was proposed in.")

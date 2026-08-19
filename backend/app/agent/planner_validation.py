@@ -22,6 +22,11 @@ Out-of-bounds values are REJECTED, not clamped — a proposal for
 layer_height=5 doesn't become layer_height=0.30; it's dropped, with a
 logged reason, so the audit trail always shows what a planner actually
 asked for and why it didn't fly.
+
+Duplicate checking spans rounds, not just one batch: round 2's `existing`
+parameter seeds the check with round 1's real, already-tested
+configurations, so re-proposing something already measured is rejected
+exactly like any other duplicate — see app/services/orchestrator.py.
 """
 
 from __future__ import annotations
@@ -55,16 +60,27 @@ def validate_and_normalize_proposals(
     run_id: str,
     proposals: list[CandidateProposal],
     requested_count: int,
+    *,
+    existing: list[CandidateConfiguration] | None = None,
+    round_number: int = 1,
 ) -> ValidationOutcome:
     """Validate and normalize raw proposals into real `CandidateConfiguration`s.
 
     `requested_count` caps how many are accepted (further clamped to
     `MAX_CANDIDATES_PER_ROUND`); excess valid proposals are rejected, not
     silently truncated without a trace.
+
+    `existing` seeds the duplicate check with configurations already tested
+    in a prior round (round 2's proposals are rejected as duplicates against
+    round 1's real, already-tested configs, not just against each other) —
+    round 1 callers simply omit it. `round_number` is stamped onto every
+    accepted `CandidateConfiguration` for audit/API purposes.
     """
     accepted: list[CandidateConfiguration] = []
     rejected: list[str] = []
-    seen: set[tuple[float, int, int]] = set()
+    seen: set[tuple[float, int, int]] = {
+        (c.layer_height, c.infill_percent, c.perimeter_count) for c in (existing or [])
+    }
 
     count_cap = max(1, min(requested_count, MAX_CANDIDATES_PER_ROUND))
 
@@ -81,7 +97,7 @@ def validate_and_normalize_proposals(
 
         if key in seen:
             rejected.append(
-                f"{label}: duplicate of an already-accepted candidate "
+                f"{label}: duplicate of an already-tested candidate "
                 f"(layer {layer_height}mm / infill {infill_percent}% / {perimeter_count} perimeters)."
             )
             continue
@@ -101,6 +117,7 @@ def validate_and_normalize_proposals(
                 infill_percent=infill_percent,
                 supports_enabled=False,
                 perimeter_count=perimeter_count,
+                round=round_number,
             )
         )
 

@@ -1,8 +1,12 @@
 """Central application configuration.
 
-All runtime configuration is read from environment variables (optionally via a
-local `.env` file — see `.env.example` at the repo root). Nothing here should
-contain secrets; this module only defines *where* to look for them.
+All runtime configuration is read from environment variables (optionally via
+a local `.env` file in this directory — `backend/.env`, see
+`backend/.env.example`; pydantic-settings resolves `.env` relative to the
+process's working directory, which is `backend/` per the documented
+`cd backend && uvicorn app.main:app` startup — a `.env` at the repo root is
+NOT read). Nothing here should contain secrets; this module only defines
+*where* to look for them.
 
 Cloud fields (GCP project, Firestore, Cloud Storage bucket) are defined now so
 that swapping local implementations for cloud-backed ones later does not

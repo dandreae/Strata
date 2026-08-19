@@ -152,3 +152,47 @@ def test_valid_and_invalid_proposals_are_independently_classified() -> None:
 
     assert len(outcome.accepted) == 2
     assert len(outcome.rejected) == 2
+
+
+# --- round tracking / cross-round duplicates (round 2) --------------------
+
+
+def test_round_number_is_stamped_on_accepted_candidates() -> None:
+    outcome = validate_and_normalize_proposals("run-1", [_proposal(0.20, 20, 2)], requested_count=1, round_number=2)
+    assert outcome.accepted[0].round == 2
+
+
+def test_round_number_defaults_to_one() -> None:
+    outcome = validate_and_normalize_proposals("run-1", [_proposal(0.20, 20, 2)], requested_count=1)
+    assert outcome.accepted[0].round == 1
+
+
+def test_rejects_duplicate_of_an_existing_round_one_candidate() -> None:
+    from app.models.candidate import CandidateConfiguration
+
+    round1 = [CandidateConfiguration(run_id="run-1", layer_height=0.20, infill_percent=20, perimeter_count=2)]
+    outcome = validate_and_normalize_proposals(
+        "run-1", [_proposal(0.20, 20, 2)], requested_count=1, existing=round1, round_number=2
+    )
+
+    assert outcome.accepted == []
+    assert len(outcome.rejected) == 1
+    assert "duplicate" in outcome.rejected[0]
+
+
+def test_round_two_proposal_distinct_from_round_one_is_accepted() -> None:
+    from app.models.candidate import CandidateConfiguration
+
+    round1 = [CandidateConfiguration(run_id="run-1", layer_height=0.20, infill_percent=20, perimeter_count=2)]
+    outcome = validate_and_normalize_proposals(
+        "run-1", [_proposal(0.15, 10, 3)], requested_count=1, existing=round1, round_number=2
+    )
+
+    assert len(outcome.accepted) == 1
+    assert outcome.accepted[0].round == 2
+    assert outcome.rejected == []
+
+
+def test_existing_none_behaves_like_no_prior_round() -> None:
+    outcome = validate_and_normalize_proposals("run-1", [_proposal(0.20, 20, 2)], requested_count=1, existing=None)
+    assert len(outcome.accepted) == 1

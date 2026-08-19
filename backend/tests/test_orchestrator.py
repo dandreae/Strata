@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.agent.deterministic_planner import DeterministicPlanner
-from app.agent.interfaces import PlannerError
+from app.agent.interfaces import PlannerError, RoundDecision
 from app.models.candidate import CandidateConfiguration, CandidateStatus
 from app.models.run import HardConstraints, OptimizationObjective, OptimizationPreferences, OptimizationRun, RunStatus
 from app.models.slicer import SliceResult
@@ -387,3 +387,259 @@ def test_execute_optimization_run_requires_candidates_or_planner(tmp_path: Path)
 
     with pytest.raises(ValueError):
         execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer)
+
+
+# --- bounded adaptive loop (round 2) --------------------------------------
+
+
+def test_round_two_stop_keeps_round_one_only_results(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    round1 = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    planner = FakePlanner(
+        candidates=round1,
+        round_two=RoundDecision(should_continue=False, reasoning_summary="Round 1 covers the space.", planner_name="fake"),
+    )
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=4.5),
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner
+    )
+
+    assert len(result.candidates) == 2  # no round-2 candidates were ever sliced
+    assert len(slicer.calls) == 2
+    assert planner.round_two_calls == [(run.id, 8)]
+
+    decisions = repository.list_decisions(run.id)
+    round_two_decision = next(d for d in decisions if d.selected_action == "stop_optimization")
+    assert "covers the space" in round_two_decision.outcome
+    assert round_two_decision.requires_human is False
+
+
+def test_round_two_continues_slices_and_combines_with_round_one(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    round1 = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    round2_proposal = _candidate(run.id, layer_height=0.12, round=2)
+    planner = FakePlanner(
+        candidates=round1,
+        round_two=RoundDecision(
+            should_continue=True,
+            reasoning_summary="Targeting lower material.",
+            candidates=[round2_proposal],
+            planner_name="fake",
+        ),
+    )
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=4.5),
+            _result(tmp_path, "c", time_s=1300, grams=2.0),  # round 2
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner
+    )
+
+    assert len(result.candidates) == 3
+    assert len(slicer.calls) == 3
+    round2_result = next(c for c in result.candidates if c.round == 2)
+    assert round2_result.status == CandidateStatus.SUCCEEDED
+    assert round2_result.filament_grams == 2.0
+
+    decisions = repository.list_decisions(run.id)
+    round_two_decision = next(d for d in decisions if d.selected_action == "continue_optimization")
+    assert "1 new candidate" in round_two_decision.observation
+
+
+def test_round_two_candidate_can_dominate_and_flip_round_one_pareto_status(tmp_path: Path) -> None:
+    """The global Pareto frontier is recomputed over BOTH rounds combined —
+    a round-2 candidate strictly better on both axes than a round-1
+    candidate must un-mark that round-1 candidate as Pareto-optimal."""
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    round1 = [_candidate(run.id, layer_height=0.20)]  # will be dominated
+    round2_proposal = _candidate(run.id, layer_height=0.12, round=2)
+    planner = FakePlanner(
+        candidates=round1,
+        round_two=RoundDecision(should_continue=True, candidates=[round2_proposal], planner_name="fake"),
+    )
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "round1", time_s=1000, grams=5.0),
+            _result(tmp_path, "round2", time_s=800, grams=3.0),  # strictly better on both axes
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner
+    )
+
+    by_round = {c.round: c for c in result.candidates}
+    assert by_round[1].is_pareto_optimal is False  # dominated by round 2's candidate
+    assert by_round[2].is_pareto_optimal is True
+
+
+def test_round_two_candidate_can_become_the_new_winner(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run(optimization_preferences=OptimizationPreferences(objective=OptimizationObjective.MINIMIZE_MATERIAL))
+    repository.create_run(run)
+
+    round1 = [_candidate(run.id, layer_height=0.20)]
+    round2_proposal = _candidate(run.id, layer_height=0.12, round=2)
+    planner = FakePlanner(
+        candidates=round1,
+        round_two=RoundDecision(should_continue=True, candidates=[round2_proposal], planner_name="fake"),
+    )
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "round1", time_s=1000, grams=5.0),
+            _result(tmp_path, "round2", time_s=1400, grams=2.0),  # lower material, slower
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner
+    )
+
+    winner = next(c for c in result.candidates if c.is_selected)
+    assert winner.round == 2
+    assert winner.filament_grams == 2.0
+
+
+def test_round_two_planner_failure_falls_back_to_round_one_without_aborting(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    round1 = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    planner = FakePlanner(candidates=round1, round_two_raise_error=PlannerError("connection refused"))
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=4.5),
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner
+    )
+
+    # The run still succeeds on Round 1's real results — Round 2 failing is
+    # NOT fatal and NOT a silent fallback to a different planner. (BALANCED
+    # objective + two non-dominated Round 1 candidates legitimately escalates
+    # rather than completing — either way, it's a normal finalized outcome,
+    # not a crash or an aborted run.)
+    assert len(result.candidates) == 2
+    assert result.run.status in (RunStatus.COMPLETED, RunStatus.NEEDS_HUMAN_INPUT)
+    assert result.decision.selected_action in ("select_candidate", "escalate_tradeoff")
+
+    decisions = repository.list_decisions(run.id)
+    failure_decision = next(d for d in decisions if d.selected_action == "round_two_unavailable")
+    assert "connection refused" in failure_decision.evidence[0]
+
+
+def test_round_two_slicer_unavailable_falls_back_to_round_one_without_aborting(tmp_path: Path) -> None:
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    round1 = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    round2_proposals = [_candidate(run.id, layer_height=0.12, round=2), _candidate(run.id, layer_height=0.13, round=2)]
+    planner = FakePlanner(
+        candidates=round1,
+        round_two=RoundDecision(should_continue=True, candidates=round2_proposals, planner_name="fake"),
+    )
+    # Round 1's two candidates succeed; round 2's first candidate then hits
+    # an unavailable slicer.
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=4.5),
+        ]
+    )
+    original_slice = slicer.slice
+    call_count = {"n": 0}
+
+    def _slice_then_fail(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] <= 2:
+            return original_slice(*args, **kwargs)
+        from app.slicer.base import SlicerUnavailableError
+
+        raise SlicerUnavailableError("binary vanished mid-run")
+
+    slicer.slice = _slice_then_fail
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner
+    )
+
+    # Round 1 results stand; the run does not abort.
+    round1_results = [c for c in result.candidates if c.round == 1]
+    assert all(c.status == CandidateStatus.SUCCEEDED for c in round1_results)
+    round2_results = [c for c in result.candidates if c.round == 2]
+    assert all(c.status == CandidateStatus.FAILED for c in round2_results)
+    assert result.run.status in (RunStatus.COMPLETED, RunStatus.NEEDS_HUMAN_INPUT)
+
+
+def test_round_two_never_exceeds_one_call(tmp_path: Path) -> None:
+    """Hard bound: at most one planner call for round 2, regardless of outcome."""
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    round1 = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    round2_proposal = _candidate(run.id, layer_height=0.12, round=2)
+    planner = FakePlanner(
+        candidates=round1,
+        round_two=RoundDecision(should_continue=True, candidates=[round2_proposal], planner_name="fake"),
+    )
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=4.5),
+            _result(tmp_path, "c", time_s=800, grams=3.0),
+        ]
+    )
+
+    execute_optimization_run(run, stl_path, repository=repository, storage=storage, slicer=slicer, planner=planner)
+
+    assert len(planner.calls) == 1  # round 1
+    assert len(planner.round_two_calls) == 1  # round 2, never more
+
+
+def test_candidates_override_bypasses_round_two_entirely(tmp_path: Path) -> None:
+    """The `candidates=` test-override path (used throughout this file) must
+    never trigger round 2 — it's a single-round bypass, not an adaptive run."""
+    repository, storage, stl_path = _setup(tmp_path)
+    run = _make_run()
+    repository.create_run(run)
+
+    candidates = [_candidate(run.id, layer_height=h) for h in (0.15, 0.20)]
+    slicer = FakeSlicerService(
+        results=[
+            _result(tmp_path, "a", time_s=1000, grams=4.0),
+            _result(tmp_path, "b", time_s=900, grams=4.5),
+        ]
+    )
+
+    result = execute_optimization_run(
+        run, stl_path, repository=repository, storage=storage, slicer=slicer, candidates=candidates
+    )
+
+    assert len(result.candidates) == 2
+    decisions = repository.list_decisions(run.id)
+    assert not any(d.selected_action in ("stop_optimization", "continue_optimization") for d in decisions)

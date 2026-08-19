@@ -48,6 +48,7 @@ class ConstraintCheckResponse(BaseModel):
 
 class CandidateResponse(BaseModel):
     id: str
+    round: int = Field(default=1, description="Experiment round this candidate was proposed in (1 or 2).")
     orientation_x: float
     orientation_y: float
     orientation_z: float

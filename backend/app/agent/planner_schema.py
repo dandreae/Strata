@@ -25,7 +25,7 @@ class CandidateProposal(BaseModel):
 
 
 class PlannerOutput(BaseModel):
-    """The full structured response a planner must produce for one round."""
+    """The full structured response a planner must produce for the first round."""
 
     candidates: list[CandidateProposal]
     planning_summary: str = Field(
@@ -34,4 +34,25 @@ class PlannerOutput(BaseModel):
     )
 
 
-__all__ = ["CandidateProposal", "PlannerOutput"]
+class RoundDecisionOutput(BaseModel):
+    """The full structured response a planner must produce for round 2: a
+    single call that both decides stop-vs-continue and (if continuing)
+    proposes the next round — one call does both jobs, never two."""
+
+    continue_optimization: bool = Field(description="True to propose new candidates; False to stop.")
+    reasoning_summary: str = Field(
+        description="One or two plain sentences explaining the decision. Not chain-of-thought."
+    )
+    # No default: always require Gemini to emit this field explicitly (as
+    # `[]` when stopping) rather than relying on it being omitted — a real
+    # run observed a truncated/malformed response for this schema (see
+    # gemini_planner.py's module docstring); requiring every field is a
+    # small, low-risk hardening in case an optional/defaulted field was a
+    # contributing factor, unconfirmed without spending another real call.
+    candidates: list[CandidateProposal] = Field(
+        description="New candidates, each different from every previously-tested "
+        "configuration. Empty list when continue_optimization is false."
+    )
+
+
+__all__ = ["CandidateProposal", "PlannerOutput", "RoundDecisionOutput"]

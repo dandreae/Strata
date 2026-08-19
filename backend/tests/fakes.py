@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.agent.interfaces import AgentPlanner, PlannerError, PlannerResult
+from app.agent.interfaces import AgentPlanner, PlannerError, PlannerResult, RoundDecision
 from app.models.candidate import CandidateConfiguration
 from app.models.run import OptimizationRun
 from app.models.slicer import SliceResult
@@ -53,9 +53,10 @@ class FakeSlicerService(SlicerService):
 
 
 class FakePlanner(AgentPlanner):
-    """Returns a pre-programmed PlannerResult (or raises PlannerError),
-    never touches Gemini/ADK. Used to prove the orchestrator calls the
-    planner abstraction rather than the fixed generator directly."""
+    """Returns pre-programmed PlannerResult/RoundDecision (or raises
+    PlannerError), never touches Gemini/ADK. Used to prove the orchestrator
+    calls the planner abstraction rather than the fixed generator directly,
+    and to drive the bounded adaptive (round 2) loop deterministically."""
 
     def __init__(
         self,
@@ -63,12 +64,19 @@ class FakePlanner(AgentPlanner):
         planning_summary: str = "fake planning summary",
         planner_name: str = "fake",
         raise_error: PlannerError | None = None,
+        round_two: RoundDecision | None = None,
+        round_two_raise_error: PlannerError | None = None,
     ) -> None:
         self._candidates = candidates or []
         self._planning_summary = planning_summary
         self._planner_name = planner_name
         self._raise_error = raise_error
+        # Default: no round 2 candidates, matching DeterministicPlanner's
+        # real "never adapts" behavior unless a test opts in.
+        self._round_two = round_two or RoundDecision(should_continue=False, reasoning_summary="fake: stop", planner_name=planner_name)
+        self._round_two_raise_error = round_two_raise_error
         self.calls: list[tuple[str, int]] = []
+        self.round_two_calls: list[tuple[str, int]] = []
 
     def plan_initial_candidates(self, run: OptimizationRun, candidate_count: int) -> PlannerResult:
         self.calls.append((run.id, candidate_count))
@@ -80,5 +88,13 @@ class FakePlanner(AgentPlanner):
             planner_name=self._planner_name,
         )
 
-    def should_continue_searching(self, run: OptimizationRun, results_so_far: list[CandidateConfiguration]) -> bool:
-        return False
+    def plan_next_round(
+        self,
+        run: OptimizationRun,
+        previous_results: list[CandidateConfiguration],
+        candidate_count: int,
+    ) -> RoundDecision:
+        self.round_two_calls.append((run.id, candidate_count))
+        if self._round_two_raise_error is not None:
+            raise self._round_two_raise_error
+        return self._round_two

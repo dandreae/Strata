@@ -35,7 +35,14 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Excludes integration/gemini_smoke from every default invocation
+# (`pytest`, `pytest -q`, `pytest tests/`, ...) structurally — not just via
+# each test's own skipif, which alone is NOT robust: it depends on runtime
+# environment state (a binary on PATH, an API key in backend/.env) that can
+# silently change independent of what command was actually run. Explicit
+# opt-in only: `pytest -m integration` / `pytest -m gemini_smoke`.
+addopts = "-m 'not integration and not gemini_smoke'"
 markers = [
-    "integration: exercises a real external binary (e.g. PrusaSlicer); auto-skipped when unavailable.",
-    "gemini_smoke: makes a real, billable Gemini API call; auto-skipped when no API key is configured.",
+    "integration: exercises a real external binary (e.g. PrusaSlicer); explicit opt-in only (pytest -m integration).",
+    "gemini_smoke: makes a real, billable Gemini API call; explicit opt-in only (pytest -m gemini_smoke).",
 ]

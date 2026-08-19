@@ -45,6 +45,16 @@ def test_is_stable_across_calls() -> None:
     assert a_specs == b_specs
 
 
-def test_should_continue_searching_is_false() -> None:
+def test_plan_next_round_always_stops() -> None:
+    """DeterministicPlanner never adapts — a deterministic run is always
+    exactly one round, deterministically."""
     planner = DeterministicPlanner()
-    assert planner.should_continue_searching(_make_run(), []) is False
+    run = _make_run()
+    previous_results = planner.plan_initial_candidates(run, candidate_count=8).candidates
+
+    decision = planner.plan_next_round(run, previous_results, candidate_count=8)
+
+    assert decision.should_continue is False
+    assert decision.candidates == []
+    assert decision.planner_name == "deterministic"
+    assert decision.reasoning_summary

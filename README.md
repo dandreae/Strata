@@ -97,14 +97,17 @@ uvicorn app.main:app --reload
 Backend runs at `http://localhost:8000`. Check `http://localhost:8000/health`
 and interactive docs at `http://localhost:8000/docs`.
 
-Configuration is read from environment variables (see `.env.example` at the
-repo root, prefixed `STRATA_`). No `.env` is required for local defaults to
-work — the default `STRATA_PLANNER_MODE=deterministic` needs no credentials
-at all. To use the real Gemini planner instead:
+Configuration is read from environment variables, prefixed `STRATA_` (see
+`backend/.env.example` — copy it to `backend/.env`; that's the path
+pydantic-settings actually reads, relative to `backend/` as the working
+directory). No `.env` is required for local defaults to work — the default
+`STRATA_PLANNER_MODE=deterministic` needs no credentials at all. To use the
+real Gemini planner instead, either add these to `backend/.env` or export
+them before starting the server:
 
 ```bash
 export STRATA_PLANNER_MODE=gemini
-export STRATA_GEMINI_API_KEY=<your Gemini API key>
+export STRATA_GEMINI_API_KEY=<your Gemini API key>   # https://aistudio.google.com/apikey
 ```
 
 The server refuses to start in `gemini` mode without a key configured — see
