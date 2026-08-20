@@ -31,6 +31,7 @@ export interface ConstraintCheck {
 
 export interface Candidate {
   id: string;
+  round: number;
   orientation_x: number;
   orientation_y: number;
   orientation_z: number;

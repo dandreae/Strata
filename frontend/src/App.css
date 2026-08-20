@@ -1,58 +1,329 @@
+/* ==========================================================================
+   Design tokens — light default, dark override. Technical/manufacturing
+   tool aesthetic: restrained neutrals, one accent blue, status colors
+   reserved for meaning (never decorative). Status hues follow the
+   project's dataviz palette so the Pareto chart and the rest of the UI
+   agree with each other.
+   ========================================================================== */
+
+:root {
+  --bg: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f2f1ee;
+  --border: #dedcd5;
+  --border-strong: #c3c2b7;
+  --text-primary: #14140f;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --accent: #2a78d6;
+  --accent-wash: #eaf1fb;
+  --good: #0ca30c;
+  --good-wash: #e7f7e7;
+  --critical: #d03b3b;
+  --critical-wash: #fbeaea;
+  --warning: #b5790f;
+  --warning-wash: #fbf1de;
+  --chart-dominated: #c3c2b7;
+  --chart-pareto: #2a78d6;
+  --chart-winner: #0ca30c;
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 1px 12px rgba(11, 11, 11, 0.03);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0d0d;
+    --surface: #17170f;
+    --surface-2: #1e1e17;
+    --border: #33322c;
+    --border-strong: #45443c;
+    --text-primary: #f5f5f0;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8d84;
+    --accent: #3987e5;
+    --accent-wash: #16233a;
+    --good: #0ca30c;
+    --good-wash: #10230f;
+    --critical: #d03b3b;
+    --critical-wash: #2c1414;
+    --warning: #d9a53a;
+    --warning-wash: #2c2210;
+    --chart-dominated: #55534a;
+    --chart-pareto: #3987e5;
+    --chart-winner: #0ca30c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 12px rgba(0, 0, 0, 0.25);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
 .page {
-  max-width: 760px;
+  max-width: 920px;
   margin: 0 auto;
-  padding: 2rem 1rem 4rem;
-  font-family: system-ui, sans-serif;
-  color: #1a1a1a;
+  padding: 2rem 1.25rem 5rem;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--text-primary);
+  background: var(--bg);
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
 }
 
 h1 {
-  margin-bottom: 0.125rem;
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
 }
 
 .tagline {
-  color: #666;
-  margin-top: 0;
-}
-
-.run-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-top: 1.5rem;
-  padding: 1.25rem;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-}
-
-.run-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.9rem;
-}
-
-.run-form input,
-.run-form select {
-  padding: 0.4rem;
+  color: var(--text-secondary);
+  margin: 0.15rem 0 0;
   font-size: 0.95rem;
 }
 
-.run-form button {
-  padding: 0.6rem;
-  font-size: 1rem;
-  cursor: pointer;
+/* ==========================================================================
+   Demo mode toggle
+   ========================================================================== */
+
+.demo-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
 }
 
-.run-form button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+.demo-toggle-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
 }
+
+.demo-toggle-switch input {
+  accent-color: var(--accent);
+}
+
+.demo-scenario-select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  max-width: 220px;
+}
+
+/* ==========================================================================
+   Flow stepper
+   ========================================================================== */
+
+.flow-steps {
+  display: flex;
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.flow-steps li {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.flow-steps li.flow-step-current {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  font-weight: 600;
+}
+
+.flow-steps li.flow-step-done {
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Setup screen
+   ========================================================================== */
+
+.setup-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.setup-intro {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.dropzone {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 8px;
+  padding: 2rem 1.25rem;
+  text-align: center;
+  cursor: pointer;
+  background: var(--surface-2);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropzone:hover,
+.dropzone:focus-visible {
+  border-color: var(--accent);
+}
+
+.dropzone-active {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.dropzone-filled {
+  border-style: solid;
+}
+
+.dropzone-input {
+  display: none;
+}
+
+.dropzone-empty p {
+  margin: 0.5rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.dropzone-icon,
+.dropzone-file-icon {
+  font-size: 1.3rem;
+  color: var(--accent);
+  display: inline-block;
+  transform: rotate(180deg);
+}
+
+.dropzone-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.dropzone-filename {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  word-break: break-all;
+}
+
+.dropzone-filesize {
+  margin: 0.1rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.field-label {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.field input,
+.field select,
+.run-form input,
+.run-form select {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.cta-button {
+  padding: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+}
+
+.cta-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.secondary-button {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.reset-button {
+  margin-top: 0.5rem;
+}
+
+/* ==========================================================================
+   Status / errors
+   ========================================================================== */
 
 .status {
   margin-top: 1rem;
-  padding: 0.6rem 0.8rem;
-  border-radius: 4px;
+  padding: 0.75rem 0.9rem;
+  border-radius: 6px;
 }
 
 .status ul {
@@ -60,42 +331,178 @@ h1 {
   padding-left: 1.2rem;
 }
 
-.status-loading {
-  background: #eef2f7;
-  color: #33475b;
-}
-
 .status-error {
-  background: #fbe9e7;
-  color: #b3261e;
+  background: var(--critical-wash);
+  color: var(--critical);
 }
 
-/* --- Results --- */
+.status-error .secondary-button {
+  margin-top: 0.6rem;
+}
+
+/* ==========================================================================
+   Agent pipeline (loading state)
+   ========================================================================== */
+
+.pipeline-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+}
+
+.pipeline-heading {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.pipeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-left: 2px solid var(--border);
+  padding-left: 1rem;
+  margin-left: 0.55rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  position: relative;
+}
+
+.pipeline-marker {
+  position: absolute;
+  left: -0.68rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.pipeline-step-done {
+  border-left-color: var(--good);
+  color: var(--text-primary);
+}
+
+.pipeline-step-done .pipeline-marker {
+  background: var(--good);
+  border-color: var(--good);
+  color: white;
+}
+
+.pipeline-step-active {
+  border-left-color: var(--accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.pipeline-step-active .pipeline-marker {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-wash);
+  }
+  50% {
+    box-shadow: 0 0 0 5px var(--accent-wash);
+  }
+}
+
+.pipeline-caption {
+  margin: 1.25rem 0 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   Fixture banner
+   ========================================================================== */
+
+.fixture-banner {
+  margin: 1.25rem 0 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.fixture-banner-real {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.fixture-banner-synthetic {
+  background: var(--warning-wash);
+  color: var(--warning);
+}
+
+/* ==========================================================================
+   Results — shared card
+   ========================================================================== */
 
 .results {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  margin-top: 1.5rem;
+  margin-top: 1rem;
 }
 
 .result-card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.5rem;
 }
 
 .result-card h2 {
   margin: 0 0 0.75rem;
-  font-size: 1rem;
+  font-size: 0.85rem;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #555;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
 }
 
 .result-card-error {
-  border-color: #e0a394;
-  background: #fdf3f1;
+  border-color: var(--critical);
+  background: var(--critical-wash);
+}
+
+.result-card-pending {
+  border-color: var(--warning);
+  background: var(--warning-wash);
+}
+
+.round-subtitle {
+  margin: -0.4rem 0 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .spec-grid {
@@ -107,7 +514,7 @@ h1 {
 }
 
 .spec-grid dt {
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .spec-grid dd {
@@ -115,9 +522,235 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-.metric-value {
-  font-size: 1.15rem;
+.decision-observation {
+  color: var(--text-secondary);
+  margin: 0 0 0.5rem;
+}
+
+.decision-outcome {
+  margin: 0 0 0.75rem;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.decision-evidence-heading {
+  margin: 0 0 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.evidence-list {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.summary-line {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.summary-line strong {
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   Chips (status labels)
+   ========================================================================== */
+
+.chip {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+}
+
+.chip-winner {
+  background: var(--good-wash);
+  color: var(--good);
+}
+
+.chip-pareto {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.chip-infeasible,
+.chip-caution {
+  background: var(--warning-wash);
+  color: var(--warning);
+}
+
+/* ==========================================================================
+   Round transition card
+   ========================================================================== */
+
+.round-transition-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.round-transition-card .chip {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.8rem;
+}
+
+/* ==========================================================================
+   Candidate grid
+   ========================================================================== */
+
+.candidate-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.candidate-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: var(--surface-2);
+}
+
+.candidate-card-winner {
+  border-color: var(--good);
+  background: var(--good-wash);
+}
+
+.candidate-card-pareto {
+  border-color: var(--accent);
+}
+
+.candidate-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.candidate-card-index {
+  font-size: 0.78rem;
+  color: var(--text-muted);
   font-weight: 600;
+}
+
+.candidate-card-spec {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.15rem 0.75rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.82rem;
+}
+
+.candidate-card-spec dt {
+  color: var(--text-muted);
+}
+
+.candidate-card-spec dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate-card-metrics {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.15rem 0.75rem;
+  margin: 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.candidate-card-metrics dt {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.candidate-card-status {
+  margin: 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--critical);
+  font-size: 0.82rem;
+}
+
+/* ==========================================================================
+   Recommendation (winner) card
+   ========================================================================== */
+
+.recommendation-card {
+  border-color: var(--good);
+  background: var(--good-wash);
+  position: relative;
+}
+
+.selected-badge {
+  display: inline-block;
+  background: var(--good);
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  margin-bottom: 0.9rem;
+}
+
+.recommendation-metrics {
+  display: flex;
+  gap: 2.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.recommendation-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.recommendation-metric-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: proportional-nums;
+}
+
+.recommendation-metric-label {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+}
+
+.measured-tag {
+  margin: 0 0 1.1rem;
+  color: var(--good);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.recommendation-spec {
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+  margin-bottom: 0.9rem;
+}
+
+.recommendation-reason {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0 0 0.9rem;
 }
 
 .requirement-list {
@@ -126,13 +759,14 @@ h1 {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
 .requirement {
   display: flex;
   align-items: baseline;
   gap: 0.6rem;
+  font-size: 0.88rem;
 }
 
 .requirement-mark {
@@ -142,106 +776,108 @@ h1 {
 }
 
 .requirement-pass .requirement-mark {
-  color: #1e7a34;
+  color: var(--good);
 }
 
 .requirement-fail .requirement-mark {
-  color: #b3261e;
+  color: var(--critical);
 }
 
-.requirement-text {
+/* ==========================================================================
+   Pareto chart
+   ========================================================================== */
+
+.chart-figure {
+  margin: 0;
+}
+
+.pareto-svg {
+  width: 100%;
+  height: auto;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.chart-gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.chart-tick-label {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.chart-axis-title {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chart-dot {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.chart-dot-tested {
+  fill: var(--chart-dominated);
+}
+
+.chart-dot-pareto {
+  fill: var(--chart-pareto);
+}
+
+.chart-dot-winner {
+  fill: var(--chart-winner);
+}
+
+.chart-winner-label {
+  fill: var(--good);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chart-legend {
   display: flex;
-  flex-direction: column;
+  gap: 1.25rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
-.requirement-actual {
-  color: #666;
-  font-size: 0.9rem;
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
-.decision-label {
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
   display: inline-block;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  margin: 0 0 0.5rem;
 }
 
-.decision-accept {
-  background: #e6f4ea;
-  color: #1e7a34;
+.legend-dot-tested {
+  background: var(--chart-dominated);
 }
 
-.decision-reject {
-  background: #fbe9e7;
-  color: #b3261e;
+.legend-dot-pareto {
+  background: var(--chart-pareto);
 }
 
-.decision-outcome {
-  margin: 0 0 0.75rem;
+.legend-dot-winner {
+  background: var(--chart-winner);
 }
 
-.decision-evidence-heading {
-  margin: 0 0 0.25rem;
-  color: #555;
-  font-size: 0.9rem;
-}
-
-.evidence-list {
-  margin: 0 0 0.75rem;
-  padding-left: 1.2rem;
-}
-
-.decision-human {
-  margin: 0;
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.decision-observation {
-  color: #555;
-  margin: 0 0 0.5rem;
-}
-
-/* --- Optimization summary --- */
-
-.summary-line {
-  margin: 0;
-}
-
-/* --- Selected candidate --- */
-
-.result-card-selected {
-  border-color: #1e7a34;
-  background: #f3faf5;
-  position: relative;
-}
-
-.selected-badge {
-  display: inline-block;
-  background: #1e7a34;
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 0.2rem 0.55rem;
-  border-radius: 4px;
-  margin-bottom: 0.5rem;
-}
-
-.metrics-grid {
-  margin: 1rem 0;
-  padding-top: 0.75rem;
-  border-top: 1px solid #cfe4d5;
-}
-
-.result-card-pending {
-  border-color: #d8b45a;
-  background: #fdf8ec;
-}
-
-/* --- Comparison table --- */
+/* ==========================================================================
+   Comparison table
+   ========================================================================== */
 
 .comparison-scroll {
   overflow-x: auto;
@@ -250,7 +886,7 @@ h1 {
 .comparison-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   white-space: nowrap;
 }
 
@@ -258,34 +894,139 @@ h1 {
 .comparison-table td {
   text-align: left;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border);
 }
 
 .comparison-table th {
-  color: #666;
+  color: var(--text-muted);
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
 
 .comparison-row-selected {
-  background: #f3faf5;
+  background: var(--good-wash);
   font-weight: 600;
 }
 
 .row-selected-tag {
   margin-left: 0.5rem;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  color: #1e7a34;
+  color: var(--good);
   letter-spacing: 0.03em;
 }
 
 .cell-pass {
-  color: #1e7a34;
+  color: var(--good);
 }
 
 .cell-fail {
-  color: #b3261e;
+  color: var(--critical);
+}
+
+/* ==========================================================================
+   Decision ledger
+   ========================================================================== */
+
+.ledger-card {
+  padding: 1rem 1.5rem;
+}
+
+.ledger-summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  padding: 0.25rem 0;
+}
+
+.ledger-count {
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ledger-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ledger-entry {
+  display: flex;
+  gap: 0.85rem;
+}
+
+.ledger-marker {
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: white;
+}
+
+.ledger-marker-good {
+  background: var(--good);
+}
+
+.ledger-marker-bad {
+  background: var(--critical);
+}
+
+.ledger-marker-neutral {
+  background: var(--text-muted);
+}
+
+.ledger-entry-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ledger-action {
+  margin: 0.15rem 0 0.35rem;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.ledger-action-good {
+  color: var(--good);
+}
+
+.ledger-action-bad {
+  color: var(--critical);
+}
+
+.ledger-action-neutral {
+  color: var(--text-primary);
+}
+
+.ledger-human-flag {
+  margin: 0.4rem 0 0;
+  color: var(--warning);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 520px) {
+  .recommendation-metrics {
+    gap: 1.5rem;
+  }
+  .recommendation-metric-value {
+    font-size: 1.6rem;
+  }
 }

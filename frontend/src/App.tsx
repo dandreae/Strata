@@ -1,158 +1,147 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import "./App.css";
+import { AgentPipeline } from "./components/AgentPipeline";
+import { DemoModeToggle } from "./components/DemoModeToggle";
 import { RunResult } from "./components/RunResult";
-import { ApiError, createRun, type Objective, type RunDetail } from "./lib/api";
-import { validateForm } from "./lib/validate";
+import { ApiError, createRun, type RunDetail } from "./lib/api";
+import { getInitialDemoMode, setDemoMode as persistDemoMode } from "./lib/demoMode";
+import { DEFAULT_FIXTURE_KEY, getFixture } from "./lib/fixtures";
+import { SetupForm, type SetupValues } from "./components/SetupForm";
 
 // Printer profile is fixed for this milestone — no profile selection UI yet,
 // and the backend doesn't load a profile file either (see
 // docs/architecture.md); it's accepted for future use.
 const PRINTER_PROFILE = "generic_pla";
 
-type RunState =
+// How long the fixture path waits before "arriving", purely so the agent
+// pipeline visualization has something to show in demo mode too. Shorter
+// than a real run so local iteration stays fast — switch to the live
+// backend (see DemoModeToggle) to see real pipeline timing.
+const FIXTURE_DELAY_MS = 6000;
+
+type Phase =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "success"; run: RunDetail }
+  | { kind: "success"; run: RunDetail; fixture: { isReal: boolean; label: string } | null }
   | { kind: "error"; message: string; details: string[] };
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function App() {
-  const [file, setFile] = useState<File | null>(null);
-  const [quantity, setQuantity] = useState(100);
-  const [maxPrintMinutes, setMaxPrintMinutes] = useState(180);
-  const [maxMaterialGrams, setMaxMaterialGrams] = useState(80);
-  const [objective, setObjective] = useState<Objective>("balanced");
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [runState, setRunState] = useState<RunState>({ kind: "idle" });
+  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [demoMode, setDemoModeState] = useState(getInitialDemoMode);
+  const [scenarioKey, setScenarioKey] = useState(DEFAULT_FIXTURE_KEY);
 
-  const isRunning = runState.kind === "loading";
+  const isBusy = phase.kind === "loading";
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
+  function toggleDemoMode(enabled: boolean) {
+    setDemoModeState(enabled);
+    persistDemoMode(enabled);
+  }
 
-    const errors = validateForm({
-      file,
-      productionQuantity: quantity,
-      maxPrintTimeMinutes: maxPrintMinutes,
-      maxFilamentGrams: maxMaterialGrams,
-    });
-    setValidationErrors(errors);
-    if (errors.length > 0 || !file) return;
+  async function handleSubmit(values: SetupValues) {
+    setPhase({ kind: "loading" });
 
-    setRunState({ kind: "loading" });
+    if (demoMode) {
+      const fixture = getFixture(scenarioKey);
+      await delay(FIXTURE_DELAY_MS);
+      setPhase({
+        kind: "success",
+        run: fixture.data,
+        fixture: { isReal: fixture.isReal, label: fixture.label },
+      });
+      return;
+    }
+
     try {
       const run = await createRun({
-        file,
-        productionQuantity: quantity,
+        file: values.file,
+        productionQuantity: values.quantity,
         printerProfile: PRINTER_PROFILE,
-        maxPrintTimeSeconds: Math.round(maxPrintMinutes * 60),
-        maxFilamentGrams: maxMaterialGrams,
-        objective,
+        maxPrintTimeSeconds: Math.round(values.maxPrintMinutes * 60),
+        maxFilamentGrams: values.maxMaterialGrams,
+        objective: values.objective,
       });
-      setRunState({ kind: "success", run });
+      setPhase({ kind: "success", run, fixture: null });
     } catch (err) {
       if (err instanceof ApiError) {
-        setRunState({ kind: "error", message: err.message, details: err.details });
+        setPhase({ kind: "error", message: err.message, details: err.details });
       } else {
-        setRunState({ kind: "error", message: "Unexpected error contacting the backend.", details: [] });
+        setPhase({ kind: "error", message: "Unexpected error contacting the backend.", details: [] });
       }
     }
   }
 
+  function reset() {
+    setPhase({ kind: "idle" });
+  }
+
   return (
     <main className="page">
-      <header>
-        <h1>Strata</h1>
-        <p className="tagline">Autonomous manufacturing optimization</p>
+      <header className="page-header">
+        <div>
+          <h1>Strata</h1>
+          <p className="tagline">Autonomous manufacturing optimization</p>
+        </div>
+        <DemoModeToggle
+          demoMode={demoMode}
+          onToggleDemoMode={toggleDemoMode}
+          scenarioKey={scenarioKey}
+          onScenarioChange={setScenarioKey}
+          disabled={isBusy}
+        />
       </header>
 
-      <form className="run-form" onSubmit={handleSubmit}>
-        <label>
-          STL file
-          <input
-            type="file"
-            accept=".stl"
-            disabled={isRunning}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-        </label>
+      <ol className="flow-steps">
+        {/* Upload + constraints share one screen (SetupForm), so both read
+            "current" together while idle, then "done" from loading on. */}
+        <li className={phase.kind === "idle" ? "flow-step-current" : "flow-step-done"}>Upload part</li>
+        <li className={phase.kind === "idle" ? "flow-step-current" : "flow-step-done"}>Define constraints</li>
+        <li className={phase.kind === "loading" ? "flow-step-current" : phase.kind === "success" || phase.kind === "error" ? "flow-step-done" : ""}>
+          Watch agent work
+        </li>
+        <li className={phase.kind === "success" || phase.kind === "error" ? "flow-step-current" : ""}>
+          Review recommendation
+        </li>
+      </ol>
 
-        <label>
-          Production quantity
-          <input
-            type="number"
-            min={1}
-            value={quantity}
-            disabled={isRunning}
-            onChange={(e) => setQuantity(Number(e.target.value))}
-          />
-        </label>
+      {phase.kind === "idle" && <SetupForm disabled={false} onSubmit={handleSubmit} />}
 
-        <label>
-          Max print time (minutes, per part)
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={maxPrintMinutes}
-            disabled={isRunning}
-            onChange={(e) => setMaxPrintMinutes(Number(e.target.value))}
-          />
-        </label>
+      {phase.kind === "loading" && <AgentPipeline />}
 
-        <label>
-          Max material (grams, per part)
-          <input
-            type="number"
-            min={0}
-            step={0.1}
-            value={maxMaterialGrams}
-            disabled={isRunning}
-            onChange={(e) => setMaxMaterialGrams(Number(e.target.value))}
-          />
-        </label>
-
-        <label>
-          Optimization priority
-          <select
-            value={objective}
-            disabled={isRunning}
-            onChange={(e) => setObjective(e.target.value as Objective)}
-          >
-            <option value="balanced">Balanced</option>
-            <option value="minimize_material">Minimize material</option>
-            <option value="minimize_time">Minimize print time</option>
-          </select>
-        </label>
-
-        <button type="submit" disabled={isRunning}>
-          {isRunning ? "Slicing…" : "Start Optimization"}
-        </button>
-      </form>
-
-      {validationErrors.length > 0 && (
-        <ul className="status status-error">
-          {validationErrors.map((msg, i) => (
-            <li key={i}>{msg}</li>
-          ))}
-        </ul>
-      )}
-
-      {runState.kind === "loading" && <p className="status status-loading">Analyzing and slicing model…</p>}
-
-      {runState.kind === "error" && (
+      {phase.kind === "error" && (
         <div className="status status-error">
-          <p>{runState.message}</p>
-          {runState.details.length > 0 && (
+          <p>{phase.message}</p>
+          {phase.details.length > 0 && (
             <ul>
-              {runState.details.map((msg, i) => (
+              {phase.details.map((msg, i) => (
                 <li key={i}>{msg}</li>
               ))}
             </ul>
           )}
+          <button type="button" className="secondary-button" onClick={reset}>
+            Try again
+          </button>
         </div>
       )}
 
-      {runState.kind === "success" && <RunResult run={runState.run} />}
+      {phase.kind === "success" && (
+        <>
+          {phase.fixture && (
+            <div className={`fixture-banner ${phase.fixture.isReal ? "fixture-banner-real" : "fixture-banner-synthetic"}`}>
+              {phase.fixture.isReal
+                ? `DEMO FIXTURE — real captured run (${phase.fixture.label}), not a live optimization`
+                : `SYNTHETIC FIXTURE — hand-authored for UI testing (${phase.fixture.label}), not a real run`}
+            </div>
+          )}
+          <RunResult run={phase.run} />
+          <button type="button" className="secondary-button reset-button" onClick={reset}>
+            Start a new optimization
+          </button>
+        </>
+      )}
     </main>
   );
 }
