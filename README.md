@@ -1,200 +1,148 @@
 # Strata
 
-**Autonomous manufacturing optimization agent for 3D printing.**
+**An agent that designs its own manufacturing experiments, runs them for real, and explains its decision.**
 
-Built for the All Things Agentic Hackathon. A user uploads an STL and states
-manufacturing *outcomes* — "produce 500 of these parts, keep each under 3
-hours and under 80g of PLA, minimize material" — and Strata proposes a
-bounded set of manufacturing configurations, slices every one through a real
-slicer, and picks a winner, with a visible decision ledger explaining what
-it tried and why.
+Built for the All Things Agentic Hackathon.
 
-Full design rationale and the responsibility split between Gemini/ADK,
-deterministic optimization code, PrusaSlicer, and Google Cloud lives in
-[`docs/architecture.md`](docs/architecture.md).
+Upload a part (STL) and say what you care about — "minimize material, keep
+each print under 3 hours, under 80g of PLA." Strata doesn't ask you to tune
+slicer settings. Instead: **Gemini proposes a batch of manufacturing
+configurations to test, a real slicer measures every one of them, Gemini
+reads those measurements and decides whether a second, targeted round of
+experiments is worth running, and a deterministic optimizer picks the
+winner from every real result** — with a full decision ledger showing what
+was tried, what was measured, and why the winner won.
 
-## Current MVP scope
+## Why this is agentic, not a chatbot with a slicer bolted on
 
-**It does not implement the fully adaptive (multi-round, feedback-driven)
-agent loop yet.** What it does do: a real, working, end-to-end pipeline —
+The distinction that matters: **Gemini never predicts a print time or a
+gram of filament.** It can't — nothing can, short of actually slicing the
+geometry. Its only job is deciding what's worth *trying*, then reading
+real measurements back and deciding whether to try again. That loop —
+propose → measure → adapt → propose again → converge — is what makes this
+an agent rather than a single LLM call with a nice UI around it.
+
+A real run, captured against the deployed Cloud Run service:
 
 ```
-STL upload → StorageService
-  → planner (deterministic fixed set, OR Gemini + Google ADK — first round only)
-  → deterministic validation of every proposed candidate
-  → real PrusaSlicer, once per candidate
-  → parse real metrics → hard-constraint check → Pareto frontier
-  → preference-based winner selection → decision ledger → API response
+Round 1 — Gemini proposes 8 configurations spanning the layer-height /
+          infill / perimeter search space
+        → real PrusaSlicer slices all 8 → real measured print time & material
+Round 2 — Gemini reads the 8 real results: "All Round 1 candidates easily
+          met the constraints. To minimize material further, explore
+          minimal infill and wall loops around 0.1mm layer height."
+        → proposes 4 new, targeted configurations
+        → real PrusaSlicer slices all 4
+Selection — 12 real results, 6 Pareto-optimal, deterministic code picks
+            the winner: 0.10mm / 5% infill / 2 perimeters
+            → 22m 20s print time, 2.71g material (measured, not predicted)
 ```
 
-wired into `POST /api/v1/runs`, and shown in the browser. Concretely, what
-exists today:
+Exactly **2 Gemini calls** for the entire run (hard-capped — see
+Guardrails below), end-to-end in **35 seconds**, including 12 real
+PrusaSlicer subprocess invocations inside the actual Cloud Run container.
 
-- A typed domain model: `OptimizationRun`, `CandidateConfiguration`,
-  `HardConstraints`, `OptimizationPreferences`, `DecisionRecord`, `SliceResult`.
-- A FastAPI backend with `/health` and `/api/v1/runs`: `POST` accepts a real
-  STL upload + goal metadata, runs the full pipeline above synchronously,
-  and returns the run with every candidate tried (real metrics, feasibility,
-  Pareto-optimality, selection), an optimization summary, and the decision
-  ledger; `GET` (list/by-id) returns the same.
-- A real `PrusaSlicerService` adapter — command construction and G-code
-  parsing were grounded in PrusaSlicer's own C++ source and then **confirmed
-  against a real installed binary** (PrusaSlicer-2.9.6).
-- Deterministic, unit-tested optimization utilities: hard-constraint
-  checking, Pareto dominance/frontier, and preference-based winner selection
-  — unchanged regardless of which planner proposed the candidates.
-- **`AgentPlanner`, implemented two ways**: `DeterministicPlanner` (the
-  original fixed 8-candidate set, default, offline/free) and
-  `GeminiAgentPlanner` (real Gemini + Google ADK, proposes the *first*
-  candidate round only). Selected via `STRATA_PLANNER_MODE`. Every
-  Gemini-proposed candidate passes through a deterministic validation
-  boundary (`app/agent/planner_validation.py`) — bounds, NaN/Infinity,
-  duplicates, and a hard count cap — before it can ever reach PrusaSlicer.
-  See `docs/architecture.md` §4.
-- A React/Vite frontend showing the experiment plan, an optimization
-  summary, the selected candidate, a full candidate comparison table, and
-  the decision ledger — all backend-computed, nothing recalculated in TS.
+## Proof this is real, not a mockup
 
-**Not yet built:** adaptive second-round planning (Gemini never sees its
-own proposals' measured results yet), Cloud deployment, Firestore/GCS-backed
-implementations, a background job queue (the pipeline — including the
-Gemini call — runs synchronously inside the HTTP request), and parallel
-slicing.
+- **Real Gemini 3.5 Flash + Google ADK** calls — not simulated, not cached responses in the live path.
+- **Real PrusaSlicer 2.9.2**, apt-installed and version-pinned inside the deployed container (`prusa-slicer --help` runs as a Docker build-time sanity check) — every print time and gram figure in a run comes from an actual slice, never an LLM guess.
+- **Deployed and proven on Google Cloud Run** (`us-east1`) — real container, real request, real response, verified end-to-end including the Gemini calls happening *inside* the Cloud Run request.
+- **Every LLM proposal is deterministically validated** before it can reach the slicer — bounds-checked, NaN/Infinity-rejected, deduplicated, count-capped (`app/agent/planner_validation.py`). Gemini never touches a shell, a file path, or a subprocess argument.
+- **A visible decision ledger** for every run — not chain-of-thought, a concise audit trail: what was proposed, what was measured, why the loop continued or stopped, why the winner won.
 
 ## Architecture
 
-See [`docs/architecture.md`](docs/architecture.md) for diagrams, the full
-Gemini vs. deterministic-code vs. PrusaSlicer vs. Google-Cloud breakdown,
-and the Gemini/ADK validation boundary. Short version:
+```
+┌──────────────┐   STL + goals    ┌─────────────────────────────────────────┐
+│ Frontend      │ ───────────────▶│ Backend (FastAPI, Cloud Run)             │
+│ React + Vite  │                  │                                          │
+│               │◀──────────────── │  POST /api/v1/runs — one blocking call: │
+└──────────────┘  full result      │                                          │
+                                   │  1. Gemini + ADK → Round 1 proposals     │
+                                   │  2. deterministic validation             │
+                                   │  3. real PrusaSlicer × N candidates      │
+                                   │  4. Gemini reads Round 1 results →       │
+                                   │     continue or stop                     │
+                                   │  5. (if continuing) validate + slice     │
+                                   │     Round 2 the same way                 │
+                                   │  6. deterministic Pareto frontier +      │
+                                   │     preference-based winner selection    │
+                                   │  7. decision ledger                      │
+                                   └─────────────────────────────────────────┘
+```
 
-- **Gemini/ADK** proposes — which experiments (candidate configurations) are
-  worth running, for the first round only. Never predicts print time or
-  material, never chooses the winner.
-- **Deterministic code** (`backend/app/optimization`,
-  `backend/app/agent/planner_validation.py`) computes and validates —
-  constraint checks, Pareto dominance, ranking, and every bound on what
-  Gemini is allowed to propose. Always reproducible, never delegated to
-  the LLM.
-- **PrusaSlicer** is the only source of truth for print time and filament
-  usage. Gemini never guesses these numbers.
-- **Google Cloud** (Cloud Run, Firestore, Cloud Storage) handles execution
-  and persistence, outside the reasoning loop — not deployed yet.
+Full responsibility split (who's allowed to decide what, and why) is in
+[`docs/architecture.md`](docs/architecture.md). Short version:
 
-## Local setup
+| Concern | Owner |
+|---|---|
+| Which configurations are worth testing, and whether to run a second round | **Gemini + Google ADK** |
+| Bounds-checking every LLM proposal, constraint checks, Pareto dominance, winner selection | **Deterministic code** (`app/optimization`, `app/agent/planner_validation.py`) |
+| Actual print time / material usage | **PrusaSlicer** — the only source of truth |
+| Hosting, secrets | **Google Cloud** (Cloud Run, Artifact Registry, Secret Manager) |
 
-Requires Python 3.11+ and Node 20+.
+## Guardrails (the agent is bounded on purpose)
 
-### Backend
+- Max **2 rounds**, max **8 candidates/round**, max **1 Gemini call/round** — hard caps, not soft guidance.
+- No candidate reaches PrusaSlicer without passing deterministic validation first.
+- No silent fallback: if Gemini mode is explicitly requested and the call fails, the run fails clearly with the real error in the decision ledger — it never silently substitutes a different planner.
+- No API keys in the container image — the Gemini key is injected at deploy time from Google Secret Manager.
 
+## Google technologies used
+
+Gemini 3.5 Flash · Google ADK (`LlmAgent`, structured `output_schema`) · Google Cloud Run · Artifact Registry · Secret Manager.
+
+## Try it yourself
+
+**Zero setup — fixture mode** (real captured API responses, no network calls):
 ```bash
-cd backend
-python -m venv .venv
-.venv/Scripts/activate        # Windows; use `source .venv/bin/activate` on macOS/Linux
+cd frontend && npm install && npm run dev
+```
+Open the printed URL — the "Demo data" toggle is on by default and includes the real 2-round run described above.
+
+**Real local backend** (deterministic mode — free, no Gemini calls):
+```bash
+cd backend && python -m venv .venv && .venv/Scripts/activate
 pip install -e ".[dev]"
 uvicorn app.main:app --reload
 ```
+Toggle "Demo data" off in the frontend to hit it. To use the real Gemini
+planner instead of the deterministic fixed set, set `STRATA_PLANNER_MODE=gemini`
+and `STRATA_GEMINI_API_KEY` in `backend/.env` (get a key at
+https://aistudio.google.com/apikey).
 
-Backend runs at `http://localhost:8000`. Check `http://localhost:8000/health`
-and interactive docs at `http://localhost:8000/docs`.
-
-Configuration is read from environment variables, prefixed `STRATA_` (see
-`backend/.env.example` — copy it to `backend/.env`; that's the path
-pydantic-settings actually reads, relative to `backend/` as the working
-directory). No `.env` is required for local defaults to work — the default
-`STRATA_PLANNER_MODE=deterministic` needs no credentials at all. To use the
-real Gemini planner instead, either add these to `backend/.env` or export
-them before starting the server:
-
+**Tests** (offline, zero network calls, zero cost):
 ```bash
-export STRATA_PLANNER_MODE=gemini
-export STRATA_GEMINI_API_KEY=<your Gemini API key>   # https://aistudio.google.com/apikey
+cd backend && pytest -q
+```
+137 tests. Two additional suites are excluded by default and auto-skip
+without their prerequisite: `pytest -m integration` (real PrusaSlicer
+binary) and `pytest -m gemini_smoke` (real, billable Gemini key).
+
+## Repository map
+
+```
+backend/app/agent/        Gemini + ADK planner, deterministic validation boundary
+backend/app/slicer/       Real PrusaSlicer CLI adapter (command build + G-code parsing)
+backend/app/optimization/ Constraint checks, Pareto frontier, winner selection
+backend/app/services/     Orchestrator (the 7-step pipeline above), storage, repository
+backend/Dockerfile        Cloud Run image — Debian trixie + apt-installed PrusaSlicer
+frontend/src/components/  Setup form, agent pipeline visualization, Pareto chart, decision ledger
+frontend/src/lib/fixtures.ts  Real captured responses used in demo mode
+docs/architecture.md      Full design rationale, validation boundary, decision ledger schema
 ```
 
-The server refuses to start in `gemini` mode without a key configured — see
-Limitations.
+## Current scope (deliberately bounded)
 
-### Frontend
+Built: real end-to-end pipeline above, deployed to Cloud Run, adaptive
+2-round Gemini loop, Pareto visualization, full decision ledger.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+Not built (out of scope by design, not oversight): Firestore/Cloud
+Storage-backed persistence (local/in-memory only), parallel slicing
+(candidates slice sequentially), printer/material profile loading
+(PrusaSlicer's built-in defaults are used), a background job queue (the
+pipeline runs synchronously inside the HTTP request), public/unauthenticated
+Cloud Run access, accounts or login.
 
-Frontend runs at `http://localhost:5173` and expects the backend at
-`http://localhost:8000` (override with `VITE_API_BASE_URL`, see
-`frontend/.env.example`).
-
-### Tests
-
-```bash
-cd backend
-.venv/Scripts/activate
-pytest -q
-```
-
-Passes fully offline — no PrusaSlicer binary, no network, no Gemini
-credentials required. Covers the health/startup endpoints, the runs API,
-constraint/Pareto/selection logic, the multi-candidate orchestrator
-(including partial-failure and planner-abstraction behavior), the
-PrusaSlicer command builder + G-code parsing, and the full Gemini/ADK
-planner boundary — schema validation, bounds, duplicates, count caps, and
-call-failure handling — with the ADK boundary mocked.
-
-Two kinds of tests are excluded from the default run and auto-skip when
-their prerequisite isn't available, so a green `pytest -q` never implies
-either actually executed:
-
-```bash
-# Real PrusaSlicer binary required. Verified: real 8-candidate runs on
-# sample_data/cube_20mm.stl produced genuine, hand-checked-correct
-# Pareto/selection results (see docs/architecture.md history).
-pytest -m integration -q
-
-# Real Gemini API key required. See Limitations for current status.
-pytest -m gemini_smoke -v -s
-```
-
-### Docker
-
-```bash
-cd backend
-docker build -t strata-backend .
-docker run -p 8080:8080 strata-backend
-```
-
-Then `curl http://localhost:8080/health`. PrusaSlicer is **not** installed
-in this image yet (see `backend/Dockerfile` for why and the plan to add it).
-
-## Current limitations
-
-- **Adaptive planning isn't built yet.** Gemini proposes the first candidate
-  round only; it never sees the measured results of its own proposals.
-  `AgentPlanner.should_continue_searching` exists on the interface but both
-  implementations return `False` unconditionally. This is the explicit next
-  milestone (see `docs/architecture.md` §7).
-- **The real Gemini smoke test currently fails on invalid credentials in
-  this dev environment** — a `GEMINI_API_KEY` is present in the ambient
-  environment but the Gemini API rejects it (`400 API_KEY_INVALID`). The
-  integration code path is proven correct (mocked tests pass; the real call
-  was attempted and failed *cleanly*, with the real error message surfaced
-  via `PlannerError`, not silently swallowed — that failure-path discovery
-  is itself real evidence the "fail clearly, no silent fallback" behavior
-  works). To actually exercise a successful real call: obtain a valid key
-  from https://aistudio.google.com/apikey and set `STRATA_GEMINI_API_KEY`.
-- No printer/material *profiles* — slicing uses PrusaSlicer's built-in
-  engine defaults for anything beyond the MVP variables (layer height,
-  infill, perimeters).
-- The pipeline (including the Gemini call, when active) runs synchronously
-  inside the HTTP request; no background job queue yet.
-- No parallel slicing — candidates are sliced sequentially.
-- Persistence and storage are local/in-memory only; no Firestore or GCS.
-- No Cloud Run deployment yet.
-
-## Next milestone
-
-Feed measured results back into the planner: pass the previous round's real
-`CandidateConfiguration`s (with actual print time/filament usage) into
-`AgentPlanner`, and use `should_continue_searching` to decide whether a
-second, targeted round is worth proposing. See
-`docs/architecture.md` §7 for the full rationale.
+See [`docs/architecture.md`](docs/architecture.md) for the full rationale
+behind every one of these boundaries.
