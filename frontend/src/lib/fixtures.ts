@@ -23,6 +23,7 @@
 import type { RunDetail } from "./api";
 import cloudRunAdaptiveSuccess from "../fixtures/cloud-run-adaptive-success.json";
 import localDeterministicSuccess from "../fixtures/local-deterministic-success.json";
+import enclosureAdaptiveBenchmark from "../fixtures/enclosure-adaptive-benchmark.json";
 
 export interface FixtureScenario {
   key: string;
@@ -41,6 +42,33 @@ const ADAPTIVE_SUCCESS: FixtureScenario = {
     "and proposed 4 targeted Round 2 candidates. All 12 sliced by real PrusaSlicer.",
   isReal: true,
   data: cloudRunAdaptiveSuccess as RunDetail,
+};
+
+// The flagship demo scenario: a real, deliberately-benchmarked adaptive run
+// against a thin-walled enclosure geometry chosen specifically because its
+// perimeter/infill variables genuinely interact (verified by real local
+// PrusaSlicer characterization first — see project history). Every
+// candidate, measurement, constraint check, Pareto flag, and the final
+// tradeoff-escalation outcome is real: recovered from the actual G-code
+// files the real run produced and recomputed with the real deterministic
+// backend functions (evaluate_constraint_checks/pareto_frontier/
+// select_winner) — not fabricated. The one thing NOT included is Gemini's
+// free-text reasoning for the two decisions (planning_summary/
+// reasoning_summary): that was lost to a reporting-script bug in the run
+// that captured this data and is not recoverable without spending a new,
+// unapproved Gemini call, so those `evidence` arrays are left empty rather
+// than invented — see decisions[] in the fixture JSON itself.
+const ENCLOSURE_BENCHMARK: FixtureScenario = {
+  key: "enclosure-adaptive-benchmark",
+  label: "Enclosure benchmark — adaptive search + human tradeoff (2 rounds)",
+  description:
+    "Real captured benchmark run, 2026-08-20: a thin-walled enclosure with a genuine " +
+    "perimeter/infill interaction. Round 1: 8 candidates, only 2/8 feasible. Round 2: 8 " +
+    "candidates targeting the promising region, 8/8 feasible — every Round 1 candidate " +
+    "was dominated. Ends in a real, correct tradeoff escalation (balanced objective, " +
+    "no single dominant winner).",
+  isReal: true,
+  data: enclosureAdaptiveBenchmark as RunDetail,
 };
 
 const DETERMINISTIC_SUCCESS: FixtureScenario = {
@@ -392,6 +420,7 @@ const NEEDS_HUMAN_INPUT: FixtureScenario = {
 };
 
 export const FIXTURE_SCENARIOS: FixtureScenario[] = [
+  ENCLOSURE_BENCHMARK,
   ADAPTIVE_SUCCESS,
   DETERMINISTIC_SUCCESS,
   ROUND_TWO_UNAVAILABLE,
@@ -400,7 +429,7 @@ export const FIXTURE_SCENARIOS: FixtureScenario[] = [
   SLICER_FAILURE,
 ];
 
-export const DEFAULT_FIXTURE_KEY = ADAPTIVE_SUCCESS.key;
+export const DEFAULT_FIXTURE_KEY = ENCLOSURE_BENCHMARK.key;
 
 export function getFixture(key: string): FixtureScenario {
   return FIXTURE_SCENARIOS.find((s) => s.key === key) ?? ADAPTIVE_SUCCESS;

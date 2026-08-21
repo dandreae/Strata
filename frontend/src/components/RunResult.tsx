@@ -1,9 +1,11 @@
 import type { Candidate, Decision, OptimizationSummary, RunDetail } from "../lib/api";
 import { formatDuration, formatGrams } from "../lib/duration";
+import { sortedFinalFrontier } from "../lib/replay";
 import { ParetoChart } from "./ParetoChart";
 import { RoundSection } from "./RoundSection";
 import { RecommendationCard } from "./RecommendationCard";
 import { DecisionLedger } from "./DecisionLedger";
+import { TradeoffSlider } from "./TradeoffSlider";
 
 const ROUND_TWO_ACTIONS = new Set(["continue_optimization", "stop_optimization", "round_two_unavailable"]);
 const FINAL_ACTIONS = new Set(["select_candidate", "no_feasible_candidate", "escalate_tradeoff", "abort_run"]);
@@ -93,13 +95,20 @@ function NoWinnerCard({ run, decision }: { run: RunDetail; decision: Decision | 
   }
 
   if (run.status === "needs_human_input") {
+    const frontier = sortedFinalFrontier(run);
     return (
       <section className="result-card result-card-pending">
-        <h2>Multiple equally good options</h2>
-        <p>
+        <span className="selected-badge selected-badge-pending">Human input needed — by design</span>
+        <h2>Strata handled the engineering search. One preference remains yours.</h2>
+        <p className="decision-observation">
           {decision?.outcome ??
             "Several feasible candidates are mutually non-dominated and no optimization priority resolves the tradeoff."}
         </p>
+        {frontier.length > 0 ? (
+          <TradeoffSlider frontier={frontier} />
+        ) : (
+          <p className="decision-observation">No Pareto-optimal candidates were available to compare.</p>
+        )}
       </section>
     );
   }

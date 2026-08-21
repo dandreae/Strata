@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./App.css";
 import { AgentPipeline } from "./components/AgentPipeline";
 import { DemoModeToggle } from "./components/DemoModeToggle";
+import { ReplayExperience } from "./components/ReplayExperience";
 import { RunResult } from "./components/RunResult";
 import { ApiError, createRun, type RunDetail } from "./lib/api";
 import { getInitialDemoMode, setDemoMode as persistDemoMode } from "./lib/demoMode";
@@ -13,20 +14,23 @@ import { SetupForm, type SetupValues } from "./components/SetupForm";
 // docs/architecture.md); it's accepted for future use.
 const PRINTER_PROFILE = "generic_pla";
 
-// How long the fixture path waits before "arriving", purely so the agent
-// pipeline visualization has something to show in demo mode too. Shorter
-// than a real run so local iteration stays fast — switch to the live
-// backend (see DemoModeToggle) to see real pipeline timing.
-const FIXTURE_DELAY_MS = 6000;
+type FixtureInfo = { isReal: boolean; label: string };
 
 type Phase =
   | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "success"; run: RunDetail; fixture: { isReal: boolean; label: string } | null }
+  | { kind: "loading" } // live mode: waiting on the real backend, no data known yet
+  | { kind: "replaying"; run: RunDetail; fixture: FixtureInfo } // demo mode: staging an already-known run
+  | { kind: "success"; run: RunDetail; fixture: FixtureInfo | null }
   | { kind: "error"; message: string; details: string[] };
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function FixtureBanner({ fixture }: { fixture: FixtureInfo }) {
+  return (
+    <div className={`fixture-banner ${fixture.isReal ? "fixture-banner-real" : "fixture-banner-synthetic"}`}>
+      {fixture.isReal
+        ? `Recorded real optimization run — replaying captured agent events (${fixture.label})`
+        : `SYNTHETIC FIXTURE — hand-authored for UI testing (${fixture.label}), not a real run`}
+    </div>
+  );
 }
 
 function App() {
@@ -34,7 +38,7 @@ function App() {
   const [demoMode, setDemoModeState] = useState(getInitialDemoMode);
   const [scenarioKey, setScenarioKey] = useState(DEFAULT_FIXTURE_KEY);
 
-  const isBusy = phase.kind === "loading";
+  const isBusy = phase.kind === "loading" || phase.kind === "replaying";
 
   function toggleDemoMode(enabled: boolean) {
     setDemoModeState(enabled);
@@ -42,19 +46,16 @@ function App() {
   }
 
   async function handleSubmit(values: SetupValues) {
-    setPhase({ kind: "loading" });
-
     if (demoMode) {
+      // The full result is already known (it's a fixture) — ReplayExperience
+      // only controls how it's *revealed* over time. Nothing here waits on
+      // a network call or invents data as it goes.
       const fixture = getFixture(scenarioKey);
-      await delay(FIXTURE_DELAY_MS);
-      setPhase({
-        kind: "success",
-        run: fixture.data,
-        fixture: { isReal: fixture.isReal, label: fixture.label },
-      });
+      setPhase({ kind: "replaying", run: fixture.data, fixture: { isReal: fixture.isReal, label: fixture.label } });
       return;
     }
 
+    setPhase({ kind: "loading" });
     try {
       const run = await createRun({
         file: values.file,
@@ -72,6 +73,11 @@ function App() {
         setPhase({ kind: "error", message: "Unexpected error contacting the backend.", details: [] });
       }
     }
+  }
+
+  function finishReplay() {
+    if (phase.kind !== "replaying") return;
+    setPhase({ kind: "success", run: phase.run, fixture: phase.fixture });
   }
 
   function reset() {
@@ -99,7 +105,15 @@ function App() {
             "current" together while idle, then "done" from loading on. */}
         <li className={phase.kind === "idle" ? "flow-step-current" : "flow-step-done"}>Upload part</li>
         <li className={phase.kind === "idle" ? "flow-step-current" : "flow-step-done"}>Define constraints</li>
-        <li className={phase.kind === "loading" ? "flow-step-current" : phase.kind === "success" || phase.kind === "error" ? "flow-step-done" : ""}>
+        <li
+          className={
+            phase.kind === "loading" || phase.kind === "replaying"
+              ? "flow-step-current"
+              : phase.kind === "success" || phase.kind === "error"
+                ? "flow-step-done"
+                : ""
+          }
+        >
           Watch agent work
         </li>
         <li className={phase.kind === "success" || phase.kind === "error" ? "flow-step-current" : ""}>
@@ -110,6 +124,13 @@ function App() {
       {phase.kind === "idle" && <SetupForm disabled={false} onSubmit={handleSubmit} />}
 
       {phase.kind === "loading" && <AgentPipeline />}
+
+      {phase.kind === "replaying" && (
+        <>
+          <FixtureBanner fixture={phase.fixture} />
+          <ReplayExperience run={phase.run} onComplete={finishReplay} />
+        </>
+      )}
 
       {phase.kind === "error" && (
         <div className="status status-error">
@@ -129,13 +150,7 @@ function App() {
 
       {phase.kind === "success" && (
         <>
-          {phase.fixture && (
-            <div className={`fixture-banner ${phase.fixture.isReal ? "fixture-banner-real" : "fixture-banner-synthetic"}`}>
-              {phase.fixture.isReal
-                ? `DEMO FIXTURE — real captured run (${phase.fixture.label}), not a live optimization`
-                : `SYNTHETIC FIXTURE — hand-authored for UI testing (${phase.fixture.label}), not a real run`}
-            </div>
-          )}
+          {phase.fixture && <FixtureBanner fixture={phase.fixture} />}
           <RunResult run={phase.run} />
           <button type="button" className="secondary-button reset-button" onClick={reset}>
             Start a new optimization

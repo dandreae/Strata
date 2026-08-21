@@ -1,0 +1,659 @@
+{
+  "id": "45a0a308-d22d-4f96-a61c-00c0ebcf798e",
+  "filename": "enclosure_tray.stl",
+  "model_reference": "runs/45a0a308-d22d-4f96-a61c-00c0ebcf798e/uploads/enclosure_tray.stl",
+  "status": "needs_human_input",
+  "production_quantity": 250,
+  "printer_profile": "generic_pla",
+  "hard_constraints": {
+    "max_print_time_seconds": 2700,
+    "max_filament_grams": 7.4
+  },
+  "optimization_preferences": {
+    "objective": "balanced"
+  },
+  "created_at": "2026-08-21T01:59:49.777181+00:00",
+  "updated_at": "2026-08-21T01:59:59.137810+00:00",
+  "candidates": [
+    {
+      "id": "2a9e2ad2-e979-4272-a7cb-c73cc0604f2b",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.1,
+      "infill_percent": 5,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 3068,
+      "filament_grams": 5.77,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": false,
+          "limit": 2700,
+          "actual": 3068,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 5.77,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": false,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "6192c3a0-1b3c-4cfa-b892-6d7256f79a27",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.3,
+      "infill_percent": 40,
+      "supports_enabled": false,
+      "perimeter_count": 4,
+      "status": "succeeded",
+      "print_time_seconds": 1677,
+      "filament_grams": 7.89,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1677,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": false,
+          "limit": 7.4,
+          "actual": 7.89,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": false,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "65c33b06-1a19-4ea0-bc8e-321b1de918fa",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.2,
+      "infill_percent": 20,
+      "supports_enabled": false,
+      "perimeter_count": 3,
+      "status": "succeeded",
+      "print_time_seconds": 1999,
+      "filament_grams": 7.44,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1999,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": false,
+          "limit": 7.4,
+          "actual": 7.44,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": false,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "0d0ae560-fd08-413a-8afd-a889c59bf3f3",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.28,
+      "infill_percent": 10,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 1634,
+      "filament_grams": 6.83,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1634,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.83,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "da66ce21-0258-4529-a676-2146c2ff54fa",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.12,
+      "infill_percent": 35,
+      "supports_enabled": false,
+      "perimeter_count": 4,
+      "status": "succeeded",
+      "print_time_seconds": 2918,
+      "filament_grams": 7.44,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": false,
+          "limit": 2700,
+          "actual": 2918,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": false,
+          "limit": 7.4,
+          "actual": 7.44,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": false,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "673d1057-82b6-4e51-bff7-94bcbc18464a",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.15,
+      "infill_percent": 15,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 2475,
+      "filament_grams": 6.47,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 2475,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.47,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "def3d907-14df-40f6-876a-38b9f409227b",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.25,
+      "infill_percent": 30,
+      "supports_enabled": false,
+      "perimeter_count": 3,
+      "status": "succeeded",
+      "print_time_seconds": 1771,
+      "filament_grams": 7.74,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1771,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": false,
+          "limit": 7.4,
+          "actual": 7.74,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": false,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "f5ca11af-5cd2-4f26-aceb-72d82ae59ce8",
+      "round": 1,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.18,
+      "infill_percent": 25,
+      "supports_enabled": false,
+      "perimeter_count": 4,
+      "status": "succeeded",
+      "print_time_seconds": 2130,
+      "filament_grams": 7.44,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 2130,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": false,
+          "limit": 7.4,
+          "actual": 7.44,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": false,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "27bc5c2c-9908-410f-8b0e-818067fbf476",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.3,
+      "infill_percent": 5,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 1574,
+      "filament_grams": 6.85,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1574,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.85,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": true,
+      "is_selected": false
+    },
+    {
+      "id": "ceaf70ab-dd46-404d-b777-7579d26f51a2",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.26,
+      "infill_percent": 12,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 1766,
+      "filament_grams": 6.72,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1766,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.72,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "2171adb4-6735-4cdf-9b3d-8ccc06311fa9",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.22,
+      "infill_percent": 15,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 1937,
+      "filament_grams": 6.63,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1937,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.63,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "9306bf6f-1b57-4ad1-ba11-553e1b9a0d3c",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.2,
+      "infill_percent": 10,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 1954,
+      "filament_grams": 6.64,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1954,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.64,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    },
+    {
+      "id": "0c3d2943-ea8f-4dff-b414-da95c78194c6",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.18,
+      "infill_percent": 5,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 2070,
+      "filament_grams": 6.41,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 2070,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.41,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": true,
+      "is_selected": false
+    },
+    {
+      "id": "dbe0212a-d38e-4a37-a066-d0263a6d6be1",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.28,
+      "infill_percent": 5,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 1593,
+      "filament_grams": 6.68,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1593,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.68,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": true,
+      "is_selected": false
+    },
+    {
+      "id": "e5e1c07d-d726-4018-a1ce-93bc0a4ccb49",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.24,
+      "infill_percent": 8,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 1805,
+      "filament_grams": 6.54,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 1805,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.54,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": true,
+      "is_selected": false
+    },
+    {
+      "id": "16088d63-596e-448b-9710-d2982afd4e20",
+      "round": 2,
+      "orientation_x": 0.0,
+      "orientation_y": 0.0,
+      "orientation_z": 0.0,
+      "layer_height": 0.16,
+      "infill_percent": 12,
+      "supports_enabled": false,
+      "perimeter_count": 2,
+      "status": "succeeded",
+      "print_time_seconds": 2396,
+      "filament_grams": 6.48,
+      "slicer_output_path": null,
+      "failure_reason": null,
+      "constraint_checks": [
+        {
+          "key": "max_print_time_seconds",
+          "label": "Print time",
+          "passed": true,
+          "limit": 2700,
+          "actual": 2396,
+          "unit": "s"
+        },
+        {
+          "key": "max_filament_grams",
+          "label": "Material",
+          "passed": true,
+          "limit": 7.4,
+          "actual": 6.48,
+          "unit": "g"
+        }
+      ],
+      "is_feasible": true,
+      "is_pareto_optimal": false,
+      "is_selected": false
+    }
+  ],
+  "decisions": [
+    {
+      "id": "3022e90f-9367-4ae1-a2bc-23b456c87c71",
+      "observation": "Planner 'gemini:gemini-3.5-flash' proposed 8 candidate(s) for the first experiment round.",
+      "alternatives": [],
+      "evidence": [],
+      "selected_action": "plan_initial_candidates",
+      "confidence": null,
+      "outcome": null,
+      "requires_human": false,
+      "timestamp": "2026-08-21T01:59:49.777181+00:00"
+    },
+    {
+      "id": "8fa805b1-aa46-4395-92c4-0e8ed7558b05",
+      "observation": "Planner 'gemini:gemini-3.5-flash' decided to continue after Round 1, proposing 8 new candidate(s) for Round 2.",
+      "alternatives": [],
+      "evidence": [],
+      "selected_action": "continue_optimization",
+      "confidence": null,
+      "outcome": null,
+      "requires_human": false,
+      "timestamp": "2026-08-21T01:59:56.526356+00:00"
+    },
+    {
+      "id": "98b9145a-e858-4270-96b3-b461bfdae824",
+      "observation": "16 configurations were evaluated across 2 round(s). 16 sliced successfully. 10 satisfied all hard constraints. 4 lie on the Pareto frontier.",
+      "alternatives": [
+        "round 2 / layer 0.3mm / infill 5% / 2 perimeters",
+        "round 2 / layer 0.18mm / infill 5% / 2 perimeters",
+        "round 2 / layer 0.28mm / infill 5% / 2 perimeters",
+        "round 2 / layer 0.24mm / infill 8% / 2 perimeters"
+      ],
+      "evidence": [
+        "No optimization priority set and multiple candidates are mutually non-dominated; this tradeoff requires human input."
+      ],
+      "selected_action": "escalate_tradeoff",
+      "confidence": null,
+      "outcome": "No optimization priority set and multiple candidates are mutually non-dominated; this tradeoff requires human input.",
+      "requires_human": true,
+      "timestamp": "2026-08-21T01:59:59.137810+00:00"
+    }
+  ],
+  "optimization_summary": {
+    "candidates_tested": 16,
+    "succeeded": 16,
+    "feasible": 10,
+    "pareto_optimal": 4
+  }
+}

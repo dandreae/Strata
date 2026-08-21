@@ -155,9 +155,11 @@ export function ParetoChart({ candidates }: { candidates: Candidate[] }) {
         <span className="legend-item">
           <span className="legend-dot legend-dot-pareto" /> Pareto-optimal
         </span>
-        <span className="legend-item">
-          <span className="legend-dot legend-dot-winner" /> Selected
-        </span>
+        {winner && (
+          <span className="legend-item">
+            <span className="legend-dot legend-dot-winner" /> Selected
+          </span>
+        )}
       </figcaption>
     </figure>
   );
