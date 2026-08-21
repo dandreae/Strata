@@ -1,6 +1,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import type { Objective } from "../lib/api";
 import { validateForm } from "../lib/validate";
+import { LazyStlViewer } from "./LazyStlViewer";
 
 export interface SetupValues {
   file: File;
@@ -100,6 +101,12 @@ export function SetupForm({ disabled, onSubmit }: { disabled: boolean; onSubmit:
           </div>
         )}
       </div>
+
+      {file && (
+        <div className="setup-preview">
+          <LazyStlViewer source={{ kind: "file", file }} />
+        </div>
+      )}
 
       <div className="setup-grid">
         <label className="field">
