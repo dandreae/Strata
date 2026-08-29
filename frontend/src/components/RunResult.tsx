@@ -4,6 +4,7 @@ import { sortedFinalFrontier } from "../lib/replay";
 import { ParetoChart } from "./ParetoChart";
 import { RoundSection } from "./RoundSection";
 import { RecommendationCard } from "./RecommendationCard";
+import { RoundTransitionCard } from "./RoundTransitionCard";
 import { DecisionLedger } from "./DecisionLedger";
 import { TradeoffSlider } from "./TradeoffSlider";
 
@@ -25,47 +26,23 @@ function SummaryCard({ summary, roundsRun }: { summary: OptimizationSummary; rou
 }
 
 /** What the planner (deterministic or Gemini+ADK) proposed for Round 1,
- * before any slicing happened. */
-function PlanCard({ decision }: { decision: Decision }) {
+ * before any slicing happened. Headline is a concise, user-facing count —
+ * the raw backend wrapper string ("Planner 'gemini:gemini-3.5-flash'
+ * proposed...") stays available verbatim in the Decision Ledger below. */
+function PlanCard({ decision, candidateCount }: { decision: Decision; candidateCount: number }) {
   const strategy = decision.evidence[0];
   return (
     <section className="result-card">
       <h2>Round 1 — experiment plan</h2>
-      <p className="decision-observation">{decision.observation}</p>
+      <p className="decision-observation">
+        Gemini proposed {candidateCount} experiment{candidateCount === 1 ? "" : "s"}.
+      </p>
       {strategy && (
         <>
           <p className="decision-evidence-heading">Strategy</p>
           <p className="decision-outcome">“{strategy}”</p>
         </>
       )}
-    </section>
-  );
-}
-
-/** The pivot moment: the agent used Round 1's real measurements to decide
- * whether a second, targeted round is worth running. Represented exactly
- * as the backend recorded it — including the case where Round 2 planning
- * itself failed (Round 1's results still stand). */
-function RoundTwoDecisionCard({ decision }: { decision: Decision }) {
-  const reasoning = decision.evidence[0];
-
-  if (decision.selected_action === "round_two_unavailable") {
-    return (
-      <section className="result-card round-transition-card round-transition-unavailable">
-        <span className="chip chip-caution">Round 2 unavailable</span>
-        <p className="decision-observation">{decision.observation}</p>
-        <p className="decision-outcome">Round 1's measured results are still used — nothing here is discarded.</p>
-      </section>
-    );
-  }
-
-  const continuing = decision.selected_action === "continue_optimization";
-  return (
-    <section className={`result-card round-transition-card ${continuing ? "round-transition-continue" : "round-transition-stop"}`}>
-      <span className={`chip ${continuing ? "chip-pareto" : "chip-winner"}`}>
-        Gemini evaluated the measured Round 1 results → {continuing ? "Continue search" : "Stop"}
-      </span>
-      {reasoning && <p className="decision-outcome">“{reasoning}”</p>}
     </section>
   );
 }
@@ -98,8 +75,12 @@ function NoWinnerCard({ run, decision }: { run: RunDetail; decision: Decision | 
     const frontier = sortedFinalFrontier(run);
     return (
       <section className="result-card result-card-pending">
-        <span className="selected-badge selected-badge-pending">Human input needed — by design</span>
+        <span className="selected-badge selected-badge-pending">Search complete — your call</span>
         <h2>Strata handled the engineering search. One preference remains yours.</h2>
+        <p className="pending-subhead">
+          Every remaining option below is Pareto-optimal — none is objectively better on both axes, so Strata
+          asks rather than guesses.
+        </p>
         <p className="decision-observation">
           {decision?.outcome ??
             "Several feasible candidates are mutually non-dominated and no optimization priority resolves the tradeoff."}
@@ -203,10 +184,10 @@ export function RunResult({ run }: { run: RunDetail }) {
 
   return (
     <div className="results">
-      {planDecision && <PlanCard decision={planDecision} />}
+      {planDecision && <PlanCard decision={planDecision} candidateCount={round1.length} />}
       <RoundSection title="Round 1 experiments" candidates={round1} indexOf={indexOf} />
 
-      {roundTwoDecision && <RoundTwoDecisionCard decision={roundTwoDecision} />}
+      {roundTwoDecision && <RoundTransitionCard decision={roundTwoDecision} round2Count={round2.length} />}
       <RoundSection
         title="Round 2 experiments"
         subtitle="Targeted follow-up proposed after seeing Round 1's real measurements."

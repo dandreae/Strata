@@ -29,3 +29,12 @@ export function formatGrams(grams: number): string {
   if (!Number.isFinite(grams)) return "—";
   return `${grams.toFixed(2)}g`;
 }
+
+/** A shorter duration for compact UI (constraint-limit footers, chips) —
+ * same real value as formatDuration, just without a redundant ":00"
+ * seconds component when the limit is a round number, e.g. 2700 -> "45m"
+ * instead of "45m 0s". */
+export function formatDurationCompact(totalSeconds: number): string {
+  const full = formatDuration(totalSeconds);
+  return full.replace(/ 0s$/, "");
+}

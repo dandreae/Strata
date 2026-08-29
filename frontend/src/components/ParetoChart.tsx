@@ -16,19 +16,40 @@ const MARGIN = { top: 24, right: 24, bottom: 48, left: 64 };
 const PLOT_W = WIDTH - MARGIN.left - MARGIN.right;
 const PLOT_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-/** Round a raw axis max up to a "nice" number so ticks land on clean values. */
-function niceCeil(value: number): number {
-  if (value <= 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  const normalized = value / magnitude;
+/** Round a raw tick *step* up to a clean interval (1/2/5/10 × 10^n) so
+ * gridlines land on readable values. Deliberately NOT used on the axis
+ * extent itself — snapping the whole span to a "nice" number can overshoot
+ * by nearly 2x at some magnitudes (e.g. a real 55-minute span snapping up
+ * to 83 minutes), which defeats the point of a tight range. */
+function niceStep(rawStep: number): number {
+  if (rawStep <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
   const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return niceNormalized * magnitude;
 }
 
-function ticksFor(max: number, count = 5): number[] {
-  const step = niceCeil(max / count) || 1;
+/** A tight-but-padded [min, max] axis range derived directly from the real
+ * data — not always anchored at zero, so a cluster of candidates (e.g. all
+ * between 1500-2500s) isn't crushed into a corner of the plot, and not
+ * rounded out to a coarse "nice" bound either. Padding is proportional to
+ * the real spread, with a floor so a near-constant value (or a single
+ * candidate) still gets a sane range instead of a zero-width axis. */
+function tightRange(values: number[]): { min: number; max: number } {
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const spread = dataMax - dataMin;
+  const padding = Math.max(spread * 0.15, dataMax * 0.06, 1);
+  return { min: Math.max(0, dataMin - padding), max: dataMax + padding };
+}
+
+/** Gridlines at a clean step size within [min, max] — ticks don't need to
+ * span the full axis to a "nice" round number, only their spacing does. */
+function ticksFor(min: number, max: number, count = 5): number[] {
+  const step = niceStep((max - min) / count) || 1;
+  const start = Math.ceil(min / step) * step;
   const ticks: number[] = [];
-  for (let t = 0; t <= max + step * 0.001; t += step) ticks.push(Math.round(t * 100) / 100);
+  for (let t = start; t <= max + step * 0.001; t += step) ticks.push(Math.round(t * 100) / 100);
   return ticks;
 }
 
@@ -47,13 +68,15 @@ export function ParetoChart({ candidates }: { candidates: Candidate[] }) {
     return null;
   }
 
-  const maxTime = niceCeil(Math.max(...plotted.map((c) => c.print_time_seconds!)) * 1.1);
-  const maxGrams = niceCeil(Math.max(...plotted.map((c) => c.filament_grams!)) * 1.1);
-  const xTicks = ticksFor(maxTime);
-  const yTicks = ticksFor(maxGrams);
+  const timeRange = tightRange(plotted.map((c) => c.print_time_seconds!));
+  const gramsRange = tightRange(plotted.map((c) => c.filament_grams!));
+  const xTicks = ticksFor(timeRange.min, timeRange.max);
+  const yTicks = ticksFor(gramsRange.min, gramsRange.max);
 
-  const x = (seconds: number) => MARGIN.left + (seconds / maxTime) * PLOT_W;
-  const y = (grams: number) => MARGIN.top + PLOT_H - (grams / maxGrams) * PLOT_H;
+  const x = (seconds: number) =>
+    MARGIN.left + ((seconds - timeRange.min) / (timeRange.max - timeRange.min || 1)) * PLOT_W;
+  const y = (grams: number) =>
+    MARGIN.top + PLOT_H - ((grams - gramsRange.min) / (gramsRange.max - gramsRange.min || 1)) * PLOT_H;
 
   // Render order: dominated first (bottom), Pareto next, selected winner
   // last (top) — so the winner is never visually buried under other dots.

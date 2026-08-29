@@ -3,6 +3,8 @@ import type { Candidate, RunDetail } from "../lib/api";
 import { computeBeforeAfter, findDecision, isRound1OnlyParetoOptimal } from "../lib/replay";
 import { RoundSection } from "./RoundSection";
 import { RoundLearningPanel } from "./RoundLearningPanel";
+import { RoundTransitionCard } from "./RoundTransitionCard";
+import { LifecycleStepper } from "./LifecycleStepper";
 
 /**
  * Stages an already-known, already-captured RunDetail (real or synthetic —
@@ -37,6 +39,28 @@ const SCENE_DURATION_MS: Partial<Record<Scene, number>> = {
   "before-after": 2600,
 };
 const REVEAL_INTERVAL_MS = 550;
+
+// Maps each real reveal scene onto the shared 6-stage lifecycle shown by
+// LifecycleStepper (Plan / Slice candidates / Evaluate / Replan / Slice
+// follow-up / Decide) — same labels AgentPipeline uses in live mode, so
+// the two modes read as one consistent mental model. When a run genuinely
+// has no Round 2 candidates (stopped, unavailable, or never adaptive),
+// "Slice follow-up" is skipped rather than shown as reached — nothing was
+// actually sliced in a follow-up round.
+function stageForScene(scene: Scene, hasRound2: boolean): number {
+  const base: Record<Scene, number> = {
+    constraints: 0,
+    "plan-r1": 0,
+    "reveal-r1": 1,
+    "r1-frontier": 2,
+    "r1-learning": 2,
+    "decision-r2": 3,
+    "reveal-r2": hasRound2 ? 4 : 5,
+    "combined-frontier": 5,
+    "before-after": 5,
+  };
+  return base[scene];
+}
 
 function feasibleCountLabel(revealed: Candidate[]) {
   return `${revealed.filter((c) => c.is_feasible).length} / ${revealed.length || "8"} feasible`;
@@ -100,6 +124,8 @@ export function ReplayExperience({ run, onComplete }: { run: RunDetail; onComple
 
   return (
     <div className="replay-experience">
+      <LifecycleStepper currentIndex={stageForScene(scene, round2.length > 0)} />
+
       <div className="replay-status-line" aria-live="polite">
         <span className="replay-status-dot" />
         {scene === "constraints" && "Analyzing manufacturing constraints…"}
@@ -116,7 +142,7 @@ export function ReplayExperience({ run, onComplete }: { run: RunDetail; onComple
       {sceneIndex >= SCENES.indexOf("plan-r1") && planDecision && (
         <section className="result-card">
           <h2>Round 1 — experiment plan</h2>
-          <p className="decision-observation">{planDecision.observation}</p>
+          <p className="decision-observation">Gemini proposed {round1.length} experiments.</p>
         </section>
       )}
 
@@ -138,12 +164,7 @@ export function ReplayExperience({ run, onComplete }: { run: RunDetail; onComple
       {showLearning && <RoundLearningPanel round1={round1} round2={round2} />}
 
       {showDecisionR2 && roundTwoDecision && (
-        <section className="result-card round-transition-card round-transition-continue">
-          <span className="chip chip-pareto">
-            Agent decision: {roundTwoDecision.selected_action === "continue_optimization" ? "Continue search" : "Stop"}
-          </span>
-          <p className="decision-observation">{roundTwoDecision.observation}</p>
-        </section>
+        <RoundTransitionCard decision={roundTwoDecision} round2Count={round2.length} />
       )}
 
       {showRound2Section && (

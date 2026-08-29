@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LifecycleStepper } from "./LifecycleStepper";
 
 /**
  * The "watch agent work" visualization shown while a run is in flight.
@@ -12,22 +13,16 @@ import { useEffect, useState } from "react";
  * immediately jumps to "done" the moment the real response actually
  * arrives, however long that took. The on-screen caption says exactly
  * this, so nothing here misrepresents live backend state.
+ *
+ * Stage names match LifecycleStepper exactly (Plan / Slice candidates /
+ * Evaluate / Replan / Slice follow-up / Decide) so live mode and replay
+ * mode read as the same mental model.
  */
 
-const STAGES = [
-  "Analyzing constraints",
-  "Planning Round 1 experiments",
-  "Slicing candidates",
-  "Evaluating measured results",
-  "Planning adaptive Round 2",
-  "Comparing Pareto-optimal configurations",
-  "Selecting recommendation",
-] as const;
-
-// Weighted so early/late reasoning stages are quick and "Slicing" (the real
-// bottleneck — a genuine subprocess call per candidate) reads as the
+// Weighted so "Slice candidates" and "Slice follow-up" (the real
+// bottleneck — genuine subprocess calls per candidate) read as the
 // longest, roughly matching the shape of real observed run timing.
-const STAGE_WEIGHTS = [0.6, 1.2, 2.6, 1.3, 1.4, 0.9, 0.8];
+const STAGE_WEIGHTS = [1.8, 2.6, 1.3, 1.4, 2.0, 1.7];
 const TOTAL_ILLUSTRATIVE_SECONDS = 30;
 
 export function AgentPipeline() {
@@ -37,7 +32,7 @@ export function AgentPipeline() {
     const weightSum = STAGE_WEIGHTS.reduce((a, b) => a + b, 0);
     const timers: ReturnType<typeof setTimeout>[] = [];
     let elapsed = 0;
-    for (let i = 1; i < STAGES.length; i++) {
+    for (let i = 1; i < STAGE_WEIGHTS.length; i++) {
       elapsed += (STAGE_WEIGHTS[i - 1] / weightSum) * TOTAL_ILLUSTRATIVE_SECONDS;
       timers.push(setTimeout(() => setActiveIndex(i), elapsed * 1000));
     }
@@ -47,25 +42,11 @@ export function AgentPipeline() {
   return (
     <section className="pipeline-card" aria-live="polite">
       <h2 className="pipeline-heading">Strata is working</h2>
-      <ol className="pipeline-list">
-        {STAGES.map((stage, i) => {
-          const state = i < activeIndex ? "done" : i === activeIndex ? "active" : "pending";
-          return (
-            <li key={stage} className={`pipeline-step pipeline-step-${state}`}>
-              <span className="pipeline-marker" aria-hidden="true">
-                {state === "done" ? "✓" : state === "active" ? "" : ""}
-              </span>
-              <span className="pipeline-label">{stage}</span>
-            </li>
-          );
-        })}
-      </ol>
+      <LifecycleStepper currentIndex={activeIndex} />
       <p className="pipeline-caption">
-        Every step above genuinely runs, in this order, on the real backend — Gemini/ADK proposing
-        experiments, real PrusaSlicer measuring them, Gemini deciding whether a second round is
-        worthwhile. The backend replies once, at the end, rather than streaming progress, so this
-        list paces itself on a timer as an illustration and will jump straight to the real result
-        the moment it actually arrives.
+        Gemini proposes experiments, real PrusaSlicer measures them, Gemini reviews the results and
+        decides whether a second round is worth it. The backend replies once, at the end — this
+        pacing is an illustration and will jump straight to the real result the moment it arrives.
       </p>
     </section>
   );

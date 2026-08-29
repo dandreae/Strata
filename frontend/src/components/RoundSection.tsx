@@ -1,5 +1,5 @@
 import type { Candidate } from "../lib/api";
-import { formatDuration, formatGrams } from "../lib/duration";
+import { formatDuration, formatDurationCompact, formatGrams } from "../lib/duration";
 
 const STATUS_TEXT: Record<Candidate["status"], string> = {
   succeeded: "Sliced",
@@ -8,25 +8,22 @@ const STATUS_TEXT: Record<Candidate["status"], string> = {
   slicing: "Slicing…",
 };
 
-function formatCheckValue(actual: number | null, unit: string): string {
-  if (actual === null) return "—";
-  return unit === "s" ? formatDuration(actual) : formatGrams(actual);
+function formatLimitCompact(limit: number, unit: string): string {
+  return unit === "s" ? formatDurationCompact(limit) : formatGrams(limit);
 }
 
-/** The deterministic comparison a judge can verify at a glance — every
- * number here is the backend's own `constraint_checks[].actual`/`.limit`,
- * just formatted, never recomputed. */
-function ConstraintMathLine({ candidate }: { candidate: Candidate }) {
+/** Compact, scannable rejection reason — e.g. "Rejected · Print time > 45m"
+ * — naming which constraint(s) failed rather than repeating both sides of
+ * the comparison. Every value here is still the backend's own
+ * `constraint_checks[].limit`, just formatted differently; nothing is
+ * recomputed. The full actual-vs-limit numbers remain visible in the
+ * comparison table and decision ledger for anyone who wants them. */
+function RejectionFooter({ candidate }: { candidate: Candidate }) {
   const failing = candidate.constraint_checks.filter((c) => !c.passed);
   if (failing.length === 0) return null;
   return (
     <p className="constraint-math">
-      {failing.map((c, i) => (
-        <span key={c.key} className="constraint-math-item">
-          {i > 0 && " · "}
-          {formatCheckValue(c.actual, c.unit)} &gt; {formatCheckValue(c.limit, c.unit)} → rejected
-        </span>
-      ))}
+      Rejected · {failing.map((c) => `${c.label} > ${formatLimitCompact(c.limit, c.unit)}`).join(" · ")}
     </p>
   );
 }
@@ -44,31 +41,44 @@ function CandidateCard({ candidate, index, animateIn }: { candidate: Candidate; 
         {candidate.is_selected && <span className="chip chip-winner">Selected</span>}
         {!candidate.is_selected && candidate.is_pareto_optimal && <span className="chip chip-pareto">Pareto-optimal</span>}
         {!candidate.is_selected && candidate.status === "succeeded" && !candidate.is_feasible && (
-          <span className="chip chip-infeasible">Exceeds constraints</span>
+          <span className="chip chip-infeasible">Rejected</span>
         )}
       </div>
 
-      <dl className="candidate-card-spec">
-        <dt>Layer</dt>
-        <dd>{candidate.layer_height.toFixed(2)}mm</dd>
-        <dt>Infill</dt>
-        <dd>{candidate.infill_percent}%</dd>
-        <dt>Perimeters</dt>
-        <dd>{candidate.perimeter_count}</dd>
-      </dl>
-
       {candidate.status === "succeeded" ? (
         <>
+          {/* Print time / material are the headline numbers — what a judge
+              should read first, before the configuration that produced them. */}
           <dl className="candidate-card-metrics">
             <dt>Print time</dt>
             <dd>{candidate.print_time_seconds !== null ? formatDuration(candidate.print_time_seconds) : "—"}</dd>
             <dt>Material</dt>
             <dd>{candidate.filament_grams !== null ? formatGrams(candidate.filament_grams) : "—"}</dd>
           </dl>
-          <ConstraintMathLine candidate={candidate} />
+
+          <dl className="candidate-card-spec">
+            <dt>Layer</dt>
+            <dd>{candidate.layer_height.toFixed(2)}mm</dd>
+            <dt>Infill</dt>
+            <dd>{candidate.infill_percent}%</dd>
+            <dt>Perimeters</dt>
+            <dd>{candidate.perimeter_count}</dd>
+          </dl>
+
+          <RejectionFooter candidate={candidate} />
         </>
       ) : (
-        <p className="candidate-card-status">{STATUS_TEXT[candidate.status]}</p>
+        <>
+          <dl className="candidate-card-spec">
+            <dt>Layer</dt>
+            <dd>{candidate.layer_height.toFixed(2)}mm</dd>
+            <dt>Infill</dt>
+            <dd>{candidate.infill_percent}%</dd>
+            <dt>Perimeters</dt>
+            <dd>{candidate.perimeter_count}</dd>
+          </dl>
+          <p className="candidate-card-status">{STATUS_TEXT[candidate.status]}</p>
+        </>
       )}
     </li>
   );

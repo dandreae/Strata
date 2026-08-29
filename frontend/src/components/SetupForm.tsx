@@ -53,9 +53,8 @@ export function SetupForm({ disabled, onSubmit }: { disabled: boolean; onSubmit:
   return (
     <section className="setup-card">
       <p className="setup-intro">
-        Strata autonomously searches manufacturing configurations for you — an agent proposes layer
-        height, infill, and wall count combinations worth testing, measures each one with a real
-        slicer, and recommends a winner. You state the outcome you want; you don't tune slicer settings.
+        Upload a part. Set your constraints. Strata generates, slices, and evaluates configurations
+        automatically — no manual slicer tuning.
       </p>
 
       <div

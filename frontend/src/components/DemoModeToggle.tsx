@@ -27,7 +27,7 @@ export function DemoModeToggle({
           disabled={disabled}
           onChange={(e) => onToggleDemoMode(e.target.checked)}
         />
-        <span>{demoMode ? "Demo data (offline)" : "Live backend"}</span>
+        <span>{demoMode ? "Recorded run replay" : "Live backend"}</span>
       </label>
 
       {demoMode && (
