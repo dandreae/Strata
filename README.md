@@ -146,3 +146,14 @@ Cloud Run access, accounts or login.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full rationale
 behind every one of these boundaries.
+
+## Third-Party Software
+
+Strata uses PrusaSlicer as its slicing engine. PrusaSlicer is licensed under
+the GNU Affero General Public License v3.0 and is developed by Prusa
+Research. Strata invokes PrusaSlicer through its command-line interface for
+slicing operations.
+
+Strata also uses Google's Agent Development Kit (Apache License 2.0),
+Google Gemini APIs subject to Google's applicable API terms, and Three.js
+(MIT License).
