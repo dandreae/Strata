@@ -92,6 +92,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections.abc import Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
@@ -144,6 +145,34 @@ _MAX_OUTPUT_TOKENS = 2048
 # is left unconfigured (model default) since it has never shown this
 # problem; only Round 2's own real calls have.
 _ROUND_TWO_THINKING_LEVEL = "MINIMAL"
+
+# Retry handling for transient Gemini/ADK failures only — real capacity/rate
+# limiting the model API itself reports, confirmed via source introspection
+# of the installed google-genai 2.18.1 (`google/genai/errors.py`):
+# `APIError` carries a real `.code` (HTTP status) and `.status` (e.g.
+# "UNAVAILABLE", "RESOURCE_EXHAUSTED"); 4xx raises `ClientError`, 5xx raises
+# `ServerError`, both `APIError` subclasses. These five codes are the
+# conventional retryable set (rate limiting + server-side unavailability) —
+# NOT a blanket "retry all errors": a 400 (malformed request) or 401/403
+# (auth failure) is a real, permanent problem a retry cannot fix and is
+# deliberately excluded. Backoff (1s, 2s, 4s) is sized for an interactive
+# demo request, not a background job — worst case adds ~7s before giving up,
+# never hangs indefinitely.
+_RETRYABLE_GEMINI_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = (1, 2, 4)
+
+
+def _is_transient_gemini_error(exc: Exception) -> bool:
+    """True only for a real `google.genai.errors.APIError` (or subclass)
+    whose `.code` is one of the conventional retryable HTTP status codes.
+    Any other exception — malformed output, auth failure, a plain
+    `ValueError`, anything not this specific, real error shape — is treated
+    as non-transient and is never retried."""
+    from google.genai.errors import APIError
+
+    return isinstance(exc, APIError) and exc.code in _RETRYABLE_GEMINI_STATUS_CODES
+
 
 _T = TypeVar("_T")
 
@@ -301,6 +330,7 @@ class GeminiAgentPlanner(AgentPlanner):
     def _call_llm(
         self,
         *,
+        run_id: str,
         agent_name: str,
         description: str,
         instruction: str,
@@ -309,13 +339,16 @@ class GeminiAgentPlanner(AgentPlanner):
         thinking_level: str | None = None,
     ) -> tuple[str, str]:
         """Shared ADK boundary for both rounds: build a single-turn LlmAgent,
-        run it exactly once, and return (raw structured-output text,
-        diagnostics string). Diagnostics include finish reason and token
-        usage — including `thoughts_token_count`, since "thinking" tokens
-        count against the same `max_output_tokens` budget as the visible
-        response and can starve it. Raises PlannerError for any failure
-        (network, auth, empty response) — never returns a fabricated/
-        partial result.
+        run it (retrying only real, transient Gemini errors — see
+        `_is_transient_gemini_error`), and return (raw structured-output
+        text, diagnostics string). Diagnostics include finish reason and
+        token usage — including `thoughts_token_count`, since "thinking"
+        tokens count against the same `max_output_tokens` budget as the
+        visible response and can starve it. Raises PlannerError for any
+        failure (network, auth, empty response, or a transient error that
+        didn't clear within the retry budget) — never returns a fabricated/
+        partial result, and never silently falls back to a different
+        planner.
 
         `thinking_level` (a `google.genai.types.ThinkingLevel` value, e.g.
         "MINIMAL") is optional and unset by default — pass it to cap how
@@ -355,13 +388,38 @@ class GeminiAgentPlanner(AgentPlanner):
                     text = event.content.parts[0].text
             return text, diagnostics
 
-        try:
-            raw_text, diagnostics = _run_coroutine_sync(_call_once())
-        except Exception as exc:
-            # Network error, auth failure, quota, model-not-found, etc. —
-            # surface clearly. No silent fallback to the deterministic
-            # planner from inside "gemini" mode.
-            raise PlannerError(f"Gemini planner call failed: {exc}") from exc
+        attempt = 1
+        while True:
+            try:
+                raw_text, diagnostics = _run_coroutine_sync(_call_once())
+                break
+            except Exception as exc:
+                retries_left = _MAX_RETRY_ATTEMPTS - (attempt - 1)
+                if not _is_transient_gemini_error(exc) or retries_left <= 0:
+                    # Non-transient (auth failure, malformed request, quota
+                    # exhausted with no retry left, model-not-found, etc.) or
+                    # the retry budget is spent — surface clearly. No silent
+                    # fallback to the deterministic planner from inside
+                    # "gemini" mode.
+                    raise PlannerError(f"Gemini planner call failed: {exc}") from exc
+
+                delay = _RETRY_BACKOFF_SECONDS[attempt - 1]
+                logger.warning(
+                    f"transient Gemini error (attempt {attempt}/{_MAX_RETRY_ATTEMPTS + 1}), "
+                    f"retrying in {delay}s",
+                    extra={
+                        "context": {
+                            "run_id": run_id,
+                            "attempt": attempt,
+                            "max_attempts": _MAX_RETRY_ATTEMPTS + 1,
+                            "delay_seconds": delay,
+                            "error_code": getattr(exc, "code", None),
+                            "error_status": getattr(exc, "status", None),
+                        }
+                    },
+                )
+                time.sleep(delay)
+                attempt += 1
 
         if not raw_text:
             raise PlannerError(f"Gemini planner returned no response. ({diagnostics})")
@@ -369,6 +427,7 @@ class GeminiAgentPlanner(AgentPlanner):
 
     def plan_initial_candidates(self, run: OptimizationRun, candidate_count: int) -> PlannerResult:
         raw_text, diagnostics = self._call_llm(
+            run_id=run.id,
             agent_name="strata_experiment_planner",
             description="Proposes bounded FDM 3D-printing manufacturing experiments for Strata.",
             instruction=_INSTRUCTION,
@@ -408,6 +467,7 @@ class GeminiAgentPlanner(AgentPlanner):
         candidate_count: int,
     ) -> RoundDecision:
         raw_text, diagnostics = self._call_llm(
+            run_id=run.id,
             agent_name="strata_round_two_planner",
             description=(
                 "Decides whether to continue experimenting and proposes new bounded "

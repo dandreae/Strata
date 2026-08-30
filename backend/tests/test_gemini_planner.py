@@ -303,6 +303,172 @@ def test_runner_exception_raises_planner_error_not_silent_fallback(monkeypatch: 
         planner.plan_initial_candidates(_make_run(), candidate_count=2)
 
 
+def _make_retry_side_effect(steps: list):
+    """`steps`: a list where each item is either an Exception instance (to
+    raise when `run_async(...)` is called) or a list of events (to return
+    as the async generator `run_async(...)` yields) — one item consumed per
+    call, in order, matching how a real transient-then-recovered call
+    sequence behaves."""
+    calls = iter(steps)
+
+    def _side_effect(**kwargs):
+        item = next(calls)
+        if isinstance(item, Exception):
+            raise item
+        return _async_event_gen(item)
+
+    return _side_effect
+
+
+def _api_error(code: int, status: str):
+    from google.genai.errors import ClientError, ServerError
+
+    cls = ClientError if code < 500 else ServerError
+    return cls(code, {"message": "boom", "status": status})
+
+
+# --- transient Gemini error retry ------------------------------------------
+
+
+def test_transient_503_error_is_retried_and_eventually_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("app.agent.gemini_planner.time.sleep", lambda s: sleep_calls.append(s))
+
+    fake_runner_instance, _ = _install_fake_adk(
+        monkeypatch,
+        run_side_effect=_make_retry_side_effect(
+            [
+                _api_error(503, "UNAVAILABLE"),
+                _api_error(503, "UNAVAILABLE"),
+                [_fake_event(VALID_RESPONSE)],
+            ]
+        ),
+    )
+    planner = GeminiAgentPlanner(api_key="test-key", model="gemini-3.5-flash")
+
+    result = planner.plan_initial_candidates(_make_run(), candidate_count=2)
+
+    assert len(result.candidates) == 2  # eventually succeeded
+    assert fake_runner_instance.run_async.call_count == 3  # 1 initial + 2 retries
+    assert sleep_calls == [1, 2]  # exponential backoff, real delays used
+
+
+def test_transient_error_retries_capped_then_raises_planner_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Always-failing transient error must not retry forever — capped at
+    _MAX_RETRY_ATTEMPTS, then a normal PlannerError, same as any other
+    failure. No fabricated/partial result is ever returned."""
+    from app.agent.gemini_planner import _MAX_RETRY_ATTEMPTS
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("app.agent.gemini_planner.time.sleep", lambda s: sleep_calls.append(s))
+
+    def _always_503(**kwargs):
+        raise _api_error(503, "UNAVAILABLE")
+
+    fake_runner_instance, _ = _install_fake_adk(monkeypatch, run_side_effect=_always_503)
+    planner = GeminiAgentPlanner(api_key="test-key", model="gemini-3.5-flash")
+
+    with pytest.raises(PlannerError, match="Gemini planner call failed"):
+        planner.plan_initial_candidates(_make_run(), candidate_count=2)
+
+    assert fake_runner_instance.run_async.call_count == _MAX_RETRY_ATTEMPTS + 1  # 1 initial + 3 retries
+    assert sleep_calls == [1, 2, 4]
+
+
+def test_rate_limit_429_is_also_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """429 RESOURCE_EXHAUSTED (rate limiting) is a real, distinct transient
+    case from 503 — must be retried too, not just server-unavailable."""
+    monkeypatch.setattr("app.agent.gemini_planner.time.sleep", lambda s: None)
+
+    fake_runner_instance, _ = _install_fake_adk(
+        monkeypatch,
+        run_side_effect=_make_retry_side_effect(
+            [_api_error(429, "RESOURCE_EXHAUSTED"), [_fake_event(VALID_RESPONSE)]]
+        ),
+    )
+    planner = GeminiAgentPlanner(api_key="test-key", model="gemini-3.5-flash")
+
+    result = planner.plan_initial_candidates(_make_run(), candidate_count=2)
+
+    assert len(result.candidates) == 2
+    assert fake_runner_instance.run_async.call_count == 2
+
+
+def test_non_transient_client_error_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A real, permanent client error (bad request) must fail immediately —
+    a retry cannot fix a malformed request."""
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("app.agent.gemini_planner.time.sleep", lambda s: sleep_calls.append(s))
+
+    def _bad_request(**kwargs):
+        raise _api_error(400, "INVALID_ARGUMENT")
+
+    fake_runner_instance, _ = _install_fake_adk(monkeypatch, run_side_effect=_bad_request)
+    planner = GeminiAgentPlanner(api_key="test-key", model="gemini-3.5-flash")
+
+    with pytest.raises(PlannerError, match="Gemini planner call failed"):
+        planner.plan_initial_candidates(_make_run(), candidate_count=2)
+
+    assert fake_runner_instance.run_async.call_count == 1  # no retry
+    assert sleep_calls == []
+
+
+def test_auth_error_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An authentication failure (401) is permanent — never retried."""
+    monkeypatch.setattr("app.agent.gemini_planner.time.sleep", lambda s: None)
+
+    def _unauthorized(**kwargs):
+        raise _api_error(401, "UNAUTHENTICATED")
+
+    fake_runner_instance, _ = _install_fake_adk(monkeypatch, run_side_effect=_unauthorized)
+    planner = GeminiAgentPlanner(api_key="test-key", model="gemini-3.5-flash")
+
+    with pytest.raises(PlannerError, match="Gemini planner call failed"):
+        planner.plan_initial_candidates(_make_run(), candidate_count=2)
+
+    assert fake_runner_instance.run_async.call_count == 1
+
+
+def test_plain_connection_error_is_still_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A generic exception that isn't the real, specific Gemini APIError
+    shape (e.g. a raw socket-level error) is treated as non-transient —
+    retry handling is scoped to real, confirmed provider errors only."""
+    sleep_calls: list[float] = []
+    monkeypatch.setattr("app.agent.gemini_planner.time.sleep", lambda s: sleep_calls.append(s))
+
+    def _boom(**kwargs):
+        raise ConnectionError("connection refused")
+
+    fake_runner_instance, _ = _install_fake_adk(monkeypatch, run_side_effect=_boom)
+    planner = GeminiAgentPlanner(api_key="test-key", model="gemini-3.5-flash")
+
+    with pytest.raises(PlannerError, match="Gemini planner call failed"):
+        planner.plan_initial_candidates(_make_run(), candidate_count=2)
+
+    assert fake_runner_instance.run_async.call_count == 1
+    assert sleep_calls == []
+
+
+def test_retry_is_logged_clearly(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    monkeypatch.setattr("app.agent.gemini_planner.time.sleep", lambda s: None)
+
+    fake_runner_instance, _ = _install_fake_adk(
+        monkeypatch,
+        run_side_effect=_make_retry_side_effect(
+            [_api_error(503, "UNAVAILABLE"), [_fake_event(VALID_RESPONSE)]]
+        ),
+    )
+    planner = GeminiAgentPlanner(api_key="test-key", model="gemini-3.5-flash")
+
+    with caplog.at_level("WARNING"):
+        planner.plan_initial_candidates(_make_run(), candidate_count=2)
+
+    assert fake_runner_instance.run_async.call_count == 2
+    retry_logs = [r for r in caplog.records if "retrying" in r.message.lower()]
+    assert len(retry_logs) == 1
+    assert "attempt 1" in retry_logs[0].message.lower()
+
+
 def test_candidate_count_is_still_capped_for_gemini(monkeypatch: pytest.MonkeyPatch) -> None:
     """Even a well-formed, in-bounds Gemini response cannot cause more
     slicing jobs than the requested/allowed count."""
