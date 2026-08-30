@@ -119,6 +119,12 @@ function App() {
         />
       </header>
 
+      {import.meta.env.PROD && (
+        <p className="demo-mode-notice">
+          Interactive demo — uses precomputed optimization results. See the demo video for the live end-to-end run.
+        </p>
+      )}
+
       <ol className="flow-steps">
         {/* Upload + constraints share one screen (SetupForm), so both read
             "current" together while idle, then "done" from loading on. */}
